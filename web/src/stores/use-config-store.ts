@@ -540,7 +540,7 @@ function uniqueModelOptions(models: string[]) {
 export function buildApiUrl(baseUrl: string, path: string) {
     const normalizedBaseUrl = baseUrl.trim().replace(/\/+$/, "");
     const lowerBaseUrl = normalizedBaseUrl.toLowerCase();
-    if (lowerBaseUrl.endsWith("/api/v3")) return `${normalizedBaseUrl}${path.startsWith("/") ? path : `/${path}`}`;
+    if (lowerBaseUrl.endsWith("/api/v3")) return withLocalProxy(`${normalizedBaseUrl}${path.startsWith("/") ? path : `/${path}`}`);
     const apiBaseUrl = lowerBaseUrl.endsWith("/v1") ? normalizedBaseUrl : `${normalizedBaseUrl}/v1`;
     return withLocalProxy(`${apiBaseUrl}${path}`);
 }

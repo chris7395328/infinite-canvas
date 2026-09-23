@@ -1,7 +1,7 @@
 import axios from "axios";
 
 import i18n from "@/i18n";
-import { buildApiUrl, resolveModelRequestConfig, resolveModelScript, withLocalProxy, type AiConfig, type ModelChannel } from "@/stores/use-config-store";
+import { buildApiUrl, normalizeLocalProxyUrl, resolveModelRequestConfig, resolveModelScript, useConfigStore, withLocalProxy, type AiConfig, type ModelChannel } from "@/stores/use-config-store";
 import { normalizePluginImages, runModelPlugin } from "./model-plugin";
 import { nanoid } from "nanoid";
 import { dataUrlToFile } from "@/lib/image-utils";
@@ -898,7 +898,7 @@ export async function fetchImageModels(config: Pick<AiConfig, "baseUrl" | "apiKe
                 .filter((id): id is string => Boolean(id))
                 .sort((a, b) => a.localeCompare(b));
         }
-        const response = await axios.get<{ data?: Array<{ id?: string }>; error?: { message?: string } }>(buildApiUrl(config.baseUrl, "/models"), {
+        const response = await axios.get<{ data?: Array<{ id?: string }>; error?: { message?: string } }>(modelListUrl(config), {
             headers: {
                 Authorization: `Bearer ${config.apiKey}`,
             },
@@ -908,8 +908,16 @@ export async function fetchImageModels(config: Pick<AiConfig, "baseUrl" | "apiKe
             .filter((id): id is string => Boolean(id))
             .sort((a, b) => a.localeCompare(b));
     } catch (error) {
+        if (config.apiFormat === "volcengine" && axios.isAxiosError(error) && !error.response) throw new Error("无法连接本机 Seedance bridge。请运行启动脚本并确认 127.0.0.1:23210 可访问。");
         throw new Error(readAxiosError(error, apiText("modelReadFailed")));
     }
+}
+
+function modelListUrl(config: Pick<AiConfig, "baseUrl" | "apiFormat">) {
+    const url = buildApiUrl(config.baseUrl, "/models");
+    if (config.apiFormat !== "volcengine" || url.startsWith("http://127.0.0.1:23210/")) return url;
+    const bridgeUrl = normalizeLocalProxyUrl(useConfigStore.getState().config.seedance.bridgeUrl);
+    return bridgeUrl ? `${bridgeUrl}/${url}` : url;
 }
 
 export async function fetchChannelModels(channel: ModelChannel) {
