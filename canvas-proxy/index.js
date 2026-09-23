@@ -247,7 +247,9 @@ async function generateSeedance(input) {
     const isV25 = /seedance-2-5/i.test(model);
     const isEdit = isV25 && settings.taskType === "edit";
     const body = draftTaskId
-        ? { model, content: [{ type: "draft_task", draft_task: { id: draftTaskId } }], resolution: params.resolution || "720p" }
+        // Ark accepts only 1080p for an official Seedance 2.5 draft-task final.
+        // Enforce it at the bridge boundary as well as in the canvas UI.
+        ? { model, content: [{ type: "draft_task", draft_task: { id: draftTaskId } }], resolution: "1080p" }
         : {
               model,
               content: seedanceContent(input.prompt, references, params.mode),

@@ -2746,7 +2746,9 @@ function InfiniteCanvasPage() {
             const draftTaskId = node?.metadata?.seedanceDraftTaskId;
             if (!node || !draftTaskId) return;
             void handleGenerateNode(nodeId, "video", node.metadata?.prompt || "", {
-                vquality: node.metadata?.seedanceFormalResolution || "1080",
+                // Ark's draft-task continuation is the official 1080p final
+                // render route. Never reuse the sample's prior 480p/720p value.
+                vquality: "1080",
                 seedance: { ...effectiveConfig.seedance, draft: false, draftTaskId },
             });
         },
