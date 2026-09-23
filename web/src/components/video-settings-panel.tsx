@@ -36,7 +36,6 @@ export function VideoSettingsPanel({ config, onConfigChange, theme, showTitle = 
     const { t } = useTranslation();
     const isSeedance25 = isVolcengineSeedance25(config);
     const isDraft = isSeedance25 && config.seedance.draft;
-    const isEdit = isSeedance25 && config.seedance.taskType === "edit";
     const seconds = Number(clampVideoSeconds(config.videoSeconds || "6"));
     const videoMode = normalizeVideoModeValue(config.videoMode);
     const resolution = isDraft ? "480" : parseVideoResolution(config.vquality);
@@ -57,16 +56,6 @@ export function VideoSettingsPanel({ config, onConfigChange, theme, showTitle = 
                 {showTitle ? <div className="text-lg font-semibold">{t("settingsPanels.video.title")}</div> : null}
                 {isSeedance25 ? (
                     <SettingGroup title="Seedance 2.5" color={theme.node.muted}>
-                        <div className="grid grid-cols-2 gap-2.5">
-                            <label className="flex h-9 items-center justify-between rounded-full border px-3 text-sm" style={{ borderColor: theme.node.stroke }}>
-                                视频编辑模式
-                                <Switch size="small" checked={isEdit} onChange={(checked) => { onConfigChange("seedanceTaskType", checked ? "edit" : "reference"); if (checked) { onConfigChange("size", "auto"); onConfigChange("videoSeconds", "-1"); } }} />
-                            </label>
-                            <label className="flex h-9 items-center justify-between rounded-full border px-3 text-sm" style={{ borderColor: theme.node.stroke }}>
-                                草稿模式
-                                <Switch size="small" checked={isDraft} onChange={(checked) => { onConfigChange("seedanceDraft", String(checked)); if (checked) onConfigChange("vquality", "480"); }} />
-                            </label>
-                        </div>
                         <div className="space-y-2.5">
                             <div className="text-xs" style={{ color: theme.node.muted }}>任务类型</div>
                             <div className="grid grid-cols-4 gap-2">
@@ -75,6 +64,10 @@ export function VideoSettingsPanel({ config, onConfigChange, theme, showTitle = 
                                 ))}
                             </div>
                         </div>
+                        <label className="flex h-9 items-center justify-between rounded-full border px-3 text-sm" style={{ borderColor: theme.node.stroke }}>
+                            草稿模式
+                            <Switch size="small" checked={isDraft} onChange={(checked) => { onConfigChange("seedanceDraft", String(checked)); if (checked) onConfigChange("vquality", "480"); }} />
+                        </label>
                         <div className="grid grid-cols-2 gap-2.5">
                             <label className="flex h-9 items-center justify-between rounded-full border px-3 text-sm" style={{ borderColor: theme.node.stroke }}>
                                 固定镜头
