@@ -376,6 +376,7 @@ export default {
         modalDescription: "渠道聚合、默认模型、同步与本地存储",
         tabs: {
             channels: "渠道",
+            seedance: "Seedance 官方",
             localProxy: "本地代理",
             preferences: "偏好设置",
             promptSources: "提示词来源",

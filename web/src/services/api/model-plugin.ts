@@ -127,6 +127,7 @@ export async function runModelPlugin<T = unknown>(args: RunPluginArgs): Promise<
         "apiKey",
         "systemPrompt",
         "reasoningEffort",
+        "seedance",
         "http",
         "request",
         "poll",
@@ -148,6 +149,7 @@ export async function runModelPlugin<T = unknown>(args: RunPluginArgs): Promise<
             config.apiKey,
             config.systemPrompt || "",
             config.reasoningEffort,
+            config.seedance,
             http,
             request,
             poll,
@@ -179,6 +181,7 @@ export function getPluginVariables(): PluginVariable[] {
         { name: "apiKey", type: "string", desc: i18n.t("modelPlugin.variables.apiKey") },
         { name: "systemPrompt", type: "string", desc: i18n.t("modelPlugin.variables.systemPrompt") },
         { name: "reasoningEffort", type: '"auto" | "low" | "medium" | "high" | "xhigh"', desc: i18n.t("modelPlugin.variables.reasoningEffort"), capabilities: ["text"] },
+        { name: "seedance", type: "object", desc: "火山方舟 Seedance 本地 bridge、私域素材库和 COS 配置", capabilities: ["video"] },
         { name: "http", type: "object", desc: i18n.t("modelPlugin.variables.http") },
         { name: "request", type: "function", desc: i18n.t("modelPlugin.variables.request") },
         { name: "poll", type: "function", desc: i18n.t("modelPlugin.variables.poll") },
@@ -222,6 +225,39 @@ export function getPluginAuthoringPrompt(capability: ModelCapability, modelName:
 }
 
 export type PluginTemplate = { label: string; script: string };
+
+/** Built-in script used by the Volcengine Seedance provider preset. */
+export function getVolcengineSeedanceScript() {
+    return `async function toDataUrl(file) {
+  return await new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => resolve(String(reader.result || ""));
+    reader.onerror = () => reject(reader.error || new Error("素材读取失败"));
+    reader.readAsDataURL(file);
+  });
+}
+
+const bridgeUrl = (seedance.bridgeUrl || "http://127.0.0.1:23210").replace(/\\/+$/, "") + "/seedance/video";
+const response = await fetch(bridgeUrl, {
+  method: "POST",
+  headers: { "Content-Type": "application/json" },
+  signal,
+  body: JSON.stringify({
+    model,
+    apiKey,
+    prompt,
+    images,
+    videos: await Promise.all(videos.map(toDataUrl)),
+    audios: await Promise.all(audios.map(toDataUrl)),
+    params,
+    seedance,
+  }),
+});
+const result = await response.json();
+if (!response.ok) throw new Error(result.error || "Seedance 请求失败");
+if (!result.video_url) throw new Error("Seedance 未返回视频地址");
+return { url: result.video_url };`;
+}
 
 export function getPluginTemplates(): Record<ModelCapability, PluginTemplate[]> {
     return {

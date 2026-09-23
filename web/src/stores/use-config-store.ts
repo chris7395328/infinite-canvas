@@ -24,12 +24,35 @@ export type ModelChannel = {
     models: ChannelModel[];
 };
 
+export type SeedanceConfig = {
+    bridgeUrl: string;
+    usePrivateAssets: boolean;
+    projectName: string;
+    accessKeyId: string;
+    secretAccessKey: string;
+    assetGroupId: string;
+    cosEnabled: boolean;
+    cosBucket: string;
+    cosEndpoint: string;
+    cosPublicBaseUrl: string;
+    cosSecretId: string;
+    cosSecretKey: string;
+    cosObjectPrefix: string;
+    taskType: "reference" | "auto" | "extend" | "edit";
+    draft: boolean;
+    seed: string;
+    cameraFixed: boolean;
+    returnLastFrame: boolean;
+    outputFormat: "mp4" | "mov";
+};
+
 export type AiConfig = {
     channelMode: "remote" | "local";
     baseUrl: string;
     apiKey: string;
     apiFormat: ApiCallFormat;
     channels: ModelChannel[];
+    seedance: SeedanceConfig;
     model: string;
     imageModel: string;
     videoModel: string;
@@ -63,7 +86,7 @@ export type WebdavSyncConfig = {
     directory: string;
     lastSyncedAt: string;
 };
-export type ConfigTabKey = "channels" | "local-proxy" | "preferences" | "prompt-sources" | "webdav" | "local-storage";
+export type ConfigTabKey = "channels" | "seedance" | "local-proxy" | "preferences" | "prompt-sources" | "webdav" | "local-storage";
 
 export type ChannelCredentialsImportResult = {
     status: "created" | "updated" | "missing-base-url" | "invalid-base-url";
@@ -77,11 +100,45 @@ const GEMINI_BASE_URL = "https://generativelanguage.googleapis.com";
 export const LOCAL_PROXY_PACKAGE = "@basketikun/canvas-proxy";
 export const DEFAULT_LOCAL_PROXY_URL = "http://127.0.0.1:23210";
 
+export const defaultSeedanceConfig: SeedanceConfig = {
+    bridgeUrl: DEFAULT_LOCAL_PROXY_URL,
+    usePrivateAssets: true,
+    projectName: "",
+    accessKeyId: "",
+    secretAccessKey: "",
+    assetGroupId: "",
+    cosEnabled: true,
+    cosBucket: "",
+    cosEndpoint: "https://{bucket}.cos.ap-singapore.myqcloud.com",
+    cosPublicBaseUrl: "",
+    cosSecretId: "",
+    cosSecretKey: "",
+    cosObjectPrefix: "infinite-canvas",
+    taskType: "reference",
+    draft: false,
+    seed: "-1",
+    cameraFixed: false,
+    returnLastFrame: false,
+    outputFormat: "mp4",
+};
+
+function normalizeSeedanceConfig(value: Partial<SeedanceConfig> | undefined): SeedanceConfig {
+    const config = { ...defaultSeedanceConfig, ...value };
+    return {
+        ...config,
+        bridgeUrl: config.bridgeUrl.trim() || DEFAULT_LOCAL_PROXY_URL,
+        taskType: ["reference", "auto", "extend", "edit"].includes(config.taskType) ? config.taskType : "reference",
+        outputFormat: config.outputFormat === "mov" ? "mov" : "mp4",
+        seed: String(config.seed || "-1"),
+    };
+}
+
 export const defaultConfig: AiConfig = {
     channelMode: "local",
     baseUrl: OPENAI_BASE_URL,
     apiKey: "",
     apiFormat: "openai",
+    seedance: defaultSeedanceConfig,
     channels: [
         {
             id: "default",
@@ -243,7 +300,7 @@ export const useConfigStore = create<ConfigStore>()(
                 const persistedState = (persisted || {}) as Partial<ConfigStore>;
                 const persistedConfig = (persistedState.config || {}) as Partial<AiConfig>;
                 const persistedWebdav = (persistedState.webdav || {}) as Partial<WebdavSyncConfig>;
-                const config = { ...defaultConfig, ...persistedConfig };
+                const config = { ...defaultConfig, ...persistedConfig, seedance: normalizeSeedanceConfig(persistedConfig.seedance) };
                 if (!Array.isArray(persistedConfig.channels)) config.channels = [];
                 const channels = normalizeChannels(config);
                 const models = modelOptionsFromChannels(channels);

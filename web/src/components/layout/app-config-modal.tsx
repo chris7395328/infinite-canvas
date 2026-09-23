@@ -9,12 +9,14 @@ import { ChannelEditorDrawer } from "@/components/layout/channel-editor-drawer";
 import { ConfigLocalProxy } from "@/components/layout/config-local-proxy";
 import { ConfigPromptSources } from "@/components/layout/config-prompt-sources";
 import { ConfigLocalStorage } from "@/components/layout/config-local-storage";
+import { ConfigSeedance } from "@/components/layout/config-seedance";
 import type { AppLocale } from "@/i18n";
 import { exportAppConfig, importAppConfig } from "@/services/config-file";
 import { syncAppDataToWebdav, type AppSyncDomainKey, type AppSyncProgressEvent } from "@/services/app-sync";
 import { testWebdavConnection, WEBDAV_MANIFEST_FILE_NAME } from "@/services/webdav-sync";
 import { audioFormatOptions, audioVoiceOptions, normalizeAudioSpeedValue } from "@/lib/audio-generation";
 import { createModelChannel, modelOptionsFromChannels, normalizeModelOptionValue, selectableModelsByCapability, useConfigStore, type AiConfig, type ApiCallFormat, type ConfigTabKey, type ModelCapability, type ModelChannel } from "@/stores/use-config-store";
+import { getVolcengineSeedanceScript } from "@/services/api/model-plugin";
 
 type ModelGroup = {
     capability: ModelCapability;
@@ -110,6 +112,17 @@ export function AppConfigPanel({ showDoneButton = false, initialTab = "channels"
 
     const saveChannel = (channel: ModelChannel) => {
         updateChannels(config.channels.map((item) => (item.id === channel.id ? channel : item)));
+    };
+
+    const addSeedanceModels = () => {
+        const models = ["doubao-seedance-2-5-260628", "doubao-seedance-1-0-pro-250528", "doubao-seedance-1-0-lite-i2v-250428"].map((name) => ({ name, capability: "video" as const, script: getVolcengineSeedanceScript() }));
+        const existing = config.channels.find((channel) => channel.name === "火山方舟 Seedance");
+        const channel = existing
+            ? { ...existing, baseUrl: "https://ark.cn-beijing.volces.com/api/v3", models }
+            : createModelChannel({ name: "火山方舟 Seedance", baseUrl: "https://ark.cn-beijing.volces.com/api/v3", apiFormat: "openai", models });
+        updateChannels(existing ? config.channels.map((item) => (item.id === channel.id ? channel : item)) : [...config.channels, channel]);
+        setEditingChannelId(channel.id);
+        message.success("已添加火山方舟 Seedance 渠道，请填写 API Key。");
     };
 
     const testWebdav = async () => {
@@ -211,6 +224,11 @@ export function AppConfigPanel({ showDoneButton = false, initialTab = "channels"
                                 </div>
                             </div>
                         ),
+                    },
+                    {
+                        key: "seedance",
+                        label: t("config.tabs.seedance"),
+                        children: <ConfigSeedance onAddModels={addSeedanceModels} />,
                     },
                     {
                         key: "local-proxy",

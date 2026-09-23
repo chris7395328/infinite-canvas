@@ -1,5 +1,6 @@
 #!/usr/bin/env node
 import { createServer } from "node:http";
+import { createHash, createHmac, randomUUID } from "node:crypto";
 import { createRequire } from "node:module";
 import { Readable } from "node:stream";
 
@@ -73,6 +74,224 @@ function logForward(method, target, outcome, startedAt) {
     console.log(`${new Date().toLocaleTimeString()} ${method} ${target} -> ${outcome} ${((Date.now() - startedAt) / 1000).toFixed(1)}s`);
 }
 
+const ARK_BASE_URL = "https://ark.cn-beijing.volces.com/api/v3";
+const VOLC_OPEN_API = "https://open.volcengineapi.com";
+const assetGroups = new Map();
+
+function required(value, name) {
+    if (!String(value || "").trim()) throw new Error(`缺少 ${name}`);
+    return String(value).trim();
+}
+
+function sha256(value) {
+    return createHash("sha256").update(value).digest("hex");
+}
+
+function hmacSha256(key, value, encoding) {
+    return createHmac("sha256", key).update(value).digest(encoding);
+}
+
+function hmacSha1(key, value) {
+    return createHmac("sha1", key).update(value).digest("hex");
+}
+
+function volcTimestamp(now) {
+    return now.toISOString().replace(/[-:]/g, "").replace(/\.\d{3}/, "");
+}
+
+async function callVolcAssetApi(action, body, settings) {
+    const accessKeyId = required(settings.accessKeyId, "方舟 Access Key ID");
+    const secretAccessKey = required(settings.secretAccessKey, "方舟 Secret Access Key");
+    const payload = JSON.stringify(body);
+    const now = new Date();
+    const timestamp = volcTimestamp(now);
+    const date = timestamp.slice(0, 8);
+    const query = `Action=${encodeURIComponent(action)}&Version=2024-01-01`;
+    const host = "open.volcengineapi.com";
+    const payloadHash = sha256(payload);
+    const canonicalHeaders = `content-type:application/json\nhost:${host}\nx-date:${timestamp}\n`;
+    const signedHeaders = "content-type;host;x-date";
+    const canonicalRequest = `POST\n/\n${query}\n${canonicalHeaders}\n${signedHeaders}\n${payloadHash}`;
+    const scope = `${date}/cn-beijing/ark/request`;
+    const signingKey = hmacSha256(hmacSha256(hmacSha256(hmacSha256(secretAccessKey, date), "cn-beijing"), "ark"), "request");
+    const stringToSign = `HMAC-SHA256\n${timestamp}\n${scope}\n${sha256(canonicalRequest)}`;
+    const signature = hmacSha256(signingKey, stringToSign, "hex");
+    const response = await fetch(`${VOLC_OPEN_API}/?${query}`, {
+        method: "POST",
+        headers: {
+            "content-type": "application/json",
+            "x-date": timestamp,
+            authorization: `HMAC-SHA256 Credential=${accessKeyId}/${scope}, SignedHeaders=${signedHeaders}, Signature=${signature}`,
+        },
+        body: payload,
+    });
+    const text = await response.text();
+    let result;
+    try { result = JSON.parse(text); } catch { result = {}; }
+    if (!response.ok) throw new Error(`素材库 ${action} 失败 (${response.status})：${result.Message || result.Error?.Message || text.slice(0, 500) || "未返回错误说明"}`);
+    return result;
+}
+
+function resultValue(result, name) {
+    return result?.[name] || result?.Result?.[name] || "";
+}
+
+async function ensureAssetGroup(settings) {
+    if (settings.assetGroupId?.trim()) return settings.assetGroupId.trim();
+    const cacheKey = `${settings.accessKeyId}:${settings.projectName}`;
+    if (assetGroups.has(cacheKey)) return assetGroups.get(cacheKey);
+    const result = await callVolcAssetApi("CreateAssetGroup", {
+        Name: "Infinite Canvas Seedance",
+        Description: "Automatically managed by Infinite Canvas",
+        GroupType: "AIGC",
+        ProjectName: required(settings.projectName, "方舟项目名称"),
+    }, settings);
+    const id = resultValue(result, "Id");
+    if (!id) throw new Error("素材库未返回素材组 ID");
+    assetGroups.set(cacheKey, id);
+    return id;
+}
+
+function dataUrlInfo(value) {
+    const match = String(value).match(/^data:([^;,]+)?(?:;base64)?,(.*)$/s);
+    if (!match) throw new Error("参考素材必须是 data URL");
+    return { mime: match[1] || "application/octet-stream", bytes: Buffer.from(match[2], "base64") };
+}
+
+function extensionForMime(mime) {
+    return ({ "image/jpeg": ".jpg", "image/png": ".png", "image/webp": ".webp", "image/gif": ".gif", "video/mp4": ".mp4", "video/quicktime": ".mov", "video/webm": ".webm", "audio/mpeg": ".mp3", "audio/wav": ".wav", "audio/mp4": ".m4a", "audio/aac": ".aac" })[mime] || "";
+}
+
+function cosEndpoint(value, bucket) {
+    const endpoint = required(value, "COS 上传 Endpoint").replace("{bucket}", required(bucket, "COS Bucket")).replace(/\/+$/, "");
+    return /^https?:\/\//i.test(endpoint) ? endpoint : `https://${endpoint}`;
+}
+
+function cosAuthorization(url, secretId, secretKey) {
+    const now = Math.floor(Date.now() / 1000);
+    const keyTime = `${now};${now + 900}`;
+    const host = url.port ? url.host : url.hostname;
+    const headerString = `host=${encodeURIComponent(host).replace(/%7E/g, "~")}`;
+    const httpString = `put\n${decodeURIComponent(url.pathname)}\n\n${headerString}\n`;
+    const stringToSign = `sha1\n${keyTime}\n${createHash("sha1").update(httpString).digest("hex")}\n`;
+    const signKey = hmacSha1(secretKey, keyTime);
+    const signature = hmacSha1(signKey, stringToSign);
+    return `q-sign-algorithm=sha1&q-ak=${encodeURIComponent(secretId).replace(/%7E/g, "~")}&q-sign-time=${keyTime}&q-key-time=${keyTime}&q-header-list=host&q-url-param-list=&q-signature=${signature}`;
+}
+
+async function uploadToCos(dataUrl, kind, settings) {
+    if (!settings.cosEnabled) throw new Error("本地素材需要启用 COS 上传");
+    const { mime, bytes } = dataUrlInfo(dataUrl);
+    const extension = extensionForMime(mime);
+    if (!extension) throw new Error(`不支持的参考素材格式：${mime}`);
+    const prefix = String(settings.cosObjectPrefix || "infinite-canvas").replace(/^\/+|\/+$/g, "");
+    const date = new Date().toISOString().slice(0, 10).replace(/-/g, "/");
+    const key = [prefix, date, `${kind}_${randomUUID().replace(/-/g, "")}${extension}`].filter(Boolean).join("/");
+    const endpoint = cosEndpoint(settings.cosEndpoint, settings.cosBucket);
+    const uploadUrl = new URL(`${endpoint}/${key.split("/").map(encodeURIComponent).join("/")}`);
+    const response = await fetch(uploadUrl, {
+        method: "PUT",
+        headers: { "content-type": mime, authorization: cosAuthorization(uploadUrl, required(settings.cosSecretId, "COS Secret ID"), required(settings.cosSecretKey, "COS Secret Key")) },
+        body: bytes,
+    });
+    if (!response.ok) throw new Error(`COS 上传失败 (${response.status})：${(await response.text()).slice(0, 500) || response.statusText}`);
+    const publicBase = cosEndpoint(settings.cosPublicBaseUrl || settings.cosEndpoint, settings.cosBucket);
+    return `${publicBase}/${key.split("/").map(encodeURIComponent).join("/")}`;
+}
+
+function assetType(kind) {
+    return kind === "image" ? "Image" : kind === "video" ? "Video" : "Audio";
+}
+
+async function preparePrivateAsset(source, kind, settings) {
+    const url = source.startsWith("data:") ? await uploadToCos(source, kind, settings) : source;
+    const groupId = await ensureAssetGroup(settings);
+    const result = await callVolcAssetApi("CreateAsset", {
+        GroupId: groupId,
+        URL: url,
+        AssetType: assetType(kind),
+        Name: `seedance-${kind}-${randomUUID().slice(0, 8)}`,
+        ProjectName: required(settings.projectName, "方舟项目名称"),
+    }, settings);
+    const id = resultValue(result, "Id");
+    if (!id) throw new Error("素材库未返回素材 ID");
+    for (;;) {
+        await new Promise((resolve) => setTimeout(resolve, 3000));
+        const statusResult = await callVolcAssetApi("GetAsset", { Id: id, ProjectName: required(settings.projectName, "方舟项目名称") }, settings);
+        const status = String(resultValue(statusResult, "Status"));
+        if (status.toLowerCase() === "active") return `asset://${id}`;
+        if (status.toLowerCase() === "failed") throw new Error(`私域素材入库失败：${kind}`);
+    }
+}
+
+function seedanceContent(prompt, references, mode) {
+    return [{ type: "text", text: String(prompt || "").trim() }, ...references.map((item, index) => {
+        const role = item.kind === "image" ? (mode === "frames" ? (index === 0 ? "first_frame" : index === 1 ? "last_frame" : "reference_image") : "reference_image") : item.kind === "video" ? "reference_video" : "reference_audio";
+        const key = item.kind === "image" ? "image_url" : item.kind === "video" ? "video_url" : "audio_url";
+        return { type: key, [key]: { url: item.url }, role };
+    })];
+}
+
+async function generateSeedance(input) {
+    const settings = input.seedance || {};
+    const model = required(input.model, "Seedance 模型");
+    const apiKey = required(input.apiKey, "方舟 API Key");
+    const params = input.params || {};
+    const rawReferences = [
+        ...(input.images || []).map((url) => ({ url, kind: "image" })),
+        ...(input.videos || []).map((url) => ({ url, kind: "video" })),
+        ...(input.audios || []).map((url) => ({ url, kind: "audio" })),
+    ];
+    const references = await Promise.all(rawReferences.map(async (item) => ({ ...item, url: settings.usePrivateAssets ? await preparePrivateAsset(item.url, item.kind, settings) : item.url })));
+    const isV25 = /seedance-2-5/i.test(model);
+    const body = {
+        model,
+        content: seedanceContent(input.prompt, references, params.mode),
+        resolution: params.resolution || "720p",
+        ratio: params.ratio || "16:9",
+        duration: Number(params.seconds) || 8,
+        generate_audio: params.generateAudio !== false,
+        watermark: params.watermark === true,
+        ...(isV25 ? {
+            omni_reference_task_type: settings.taskType || "reference",
+            draft: settings.draft === true,
+            output_format: settings.outputFormat === "mov" ? "mov" : "mp4",
+            seed: Number(settings.seed) || -1,
+            camera_fixed: settings.cameraFixed === true,
+            return_last_frame: settings.returnLastFrame === true,
+        } : {}),
+    };
+    const created = await fetch(`${ARK_BASE_URL}/contents/generations/tasks`, {
+        method: "POST",
+        headers: { "content-type": "application/json", authorization: `Bearer ${apiKey}` },
+        body: JSON.stringify(body),
+    });
+    const createdBody = await created.json().catch(() => ({}));
+    if (!created.ok) throw new Error(`方舟创建任务失败 (${created.status})：${createdBody.error?.message || createdBody.message || "未返回错误说明"}`);
+    const taskId = createdBody.id;
+    if (!taskId) throw new Error("方舟未返回任务 ID");
+    for (;;) {
+        await new Promise((resolve) => setTimeout(resolve, 3000));
+        const response = await fetch(`${ARK_BASE_URL}/contents/generations/tasks/${encodeURIComponent(taskId)}`, { headers: { authorization: `Bearer ${apiKey}` } });
+        const task = await response.json().catch(() => ({}));
+        if (!response.ok) throw new Error(`方舟查询任务失败 (${response.status})：${task.error?.message || task.message || "未返回错误说明"}`);
+        const url = task.content?.video_url || task.video_url || task.url;
+        if (url) return { video_url: url, task_id: taskId, draft_task_id: task.draft_task_id };
+        const status = String(task.status || "").toLowerCase();
+        if (["failed", "cancelled", "canceled", "error"].includes(status)) throw new Error(task.error?.message || task.error || "Seedance 视频生成失败");
+    }
+}
+
+async function handleSeedanceVideo(req, res) {
+    try {
+        const input = JSON.parse((await readBody(req)).toString("utf8"));
+        const result = await generateSeedance(input);
+        sendJson(res, 200, result);
+    } catch (error) {
+        sendJson(res, 400, { error: error instanceof Error ? error.message : String(error) });
+    }
+}
+
 async function forward(req, res, target) {
     const body = req.method === "GET" || req.method === "HEAD" ? undefined : await readBody(req);
     const upstream = await fetch(target, { method: req.method, headers: requestHeaders(req), body, redirect: "follow" });
@@ -94,6 +313,10 @@ export function createProxyServer() {
         if (req.method === "OPTIONS") {
             res.writeHead(204, CORS_HEADERS);
             res.end();
+            return;
+        }
+        if (req.method === "POST" && req.url === "/seedance/video") {
+            void handleSeedanceVideo(req, res);
             return;
         }
         const target = readTarget(req.url || "/");

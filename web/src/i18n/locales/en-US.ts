@@ -376,6 +376,7 @@ export default {
         modalDescription: "Providers, default models, sync, and local storage",
         tabs: {
             channels: "Providers",
+            seedance: "Official Seedance",
             localProxy: "Local proxy",
             preferences: "Preferences",
             promptSources: "Prompt sources",
