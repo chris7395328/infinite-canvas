@@ -280,7 +280,13 @@ async function generateSeedance(input) {
         const task = await response.json().catch(() => ({}));
         if (!response.ok) throw new Error(`方舟查询任务失败 (${response.status})：${task.error?.message || task.message || "未返回错误说明"}`);
         const url = task.content?.video_url || task.video_url || task.url;
-        if (url) return { video_url: url, task_id: taskId, draft_task_id: task.draft_task_id };
+        if (url) {
+            // Ark identifies a sample by the ID returned when the draft task is
+            // created. The completed-task response does not reliably repeat it,
+            // so preserve that creation ID for the canvas formal-generation flow.
+            const resolvedDraftTaskId = draftTaskId || (isV25 && settings.draft ? taskId : task.draft_task_id);
+            return { video_url: url, task_id: taskId, ...(resolvedDraftTaskId ? { draft_task_id: resolvedDraftTaskId } : {}) };
+        }
         const status = String(task.status || "").toLowerCase();
         if (["failed", "cancelled", "canceled", "error"].includes(status)) throw new Error(task.error?.message || task.error || "Seedance 视频生成失败");
     }
