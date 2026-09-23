@@ -165,6 +165,10 @@ function buildNodeConfig(globalConfig: AiConfig, node: CanvasNodeData, mode: Can
             ...globalConfig.seedance,
             draft: node.metadata?.seedanceDraft ?? globalConfig.seedance.draft,
             taskType: node.metadata?.seedanceTaskType || globalConfig.seedance.taskType,
+            seed: node.metadata?.seedanceSeed ?? globalConfig.seedance.seed,
+            cameraFixed: node.metadata?.seedanceCameraFixed ?? globalConfig.seedance.cameraFixed,
+            returnLastFrame: node.metadata?.seedanceReturnLastFrame ?? globalConfig.seedance.returnLastFrame,
+            outputFormat: node.metadata?.seedanceOutputFormat ?? globalConfig.seedance.outputFormat,
             draftTaskId: node.metadata?.seedanceDraftTaskId,
             formalResolution: node.metadata?.seedanceFormalResolution,
         },
@@ -176,13 +180,17 @@ function buildNodeConfig(globalConfig: AiConfig, node: CanvasNodeData, mode: Can
     };
 }
 
-function videoConfigPatch(key: VideoSettingsKey, value: string) {
+function videoConfigPatch(key: VideoSettingsKey, value: string): Partial<CanvasNodeMetadata> {
     if (key === "videoSeconds") return { seconds: value };
     if (key === "videoGenerateAudio") return { generateAudio: value };
     if (key === "videoWatermark") return { watermark: value };
     if (key === "videoMode") return { videoMode: value };
     if (key === "seedanceDraft") return { seedanceDraft: value === "true" };
     if (key === "seedanceTaskType") return { seedanceTaskType: value as "reference" | "auto" | "extend" | "edit" };
+    if (key === "seedanceSeed") return { seedanceSeed: value };
+    if (key === "seedanceCameraFixed") return { seedanceCameraFixed: value === "true" };
+    if (key === "seedanceReturnLastFrame") return { seedanceReturnLastFrame: value === "true" };
+    if (key === "seedanceOutputFormat") return { seedanceOutputFormat: value === "mov" ? "mov" : "mp4" };
     return { [key]: value };
 }
 

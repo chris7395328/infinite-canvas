@@ -22,7 +22,7 @@ export const videoResolutionOptions = resolutionOptions.map((item) => ({ value: 
 export const videoSizeOptions = videoRatioOptions.map((item) => ({ value: item.value, get label() { return item.value === "auto" ? i18n.t("settingsPanels.common.auto") : item.value; } }));
 export const videoSecondsRange = { min: VIDEO_SECONDS_MIN, max: VIDEO_SECONDS_MAX };
 
-export type VideoSettingsKey = "vquality" | "size" | "videoSeconds" | "videoGenerateAudio" | "videoWatermark" | "videoMode" | "seedanceDraft" | "seedanceTaskType";
+export type VideoSettingsKey = "vquality" | "size" | "videoSeconds" | "videoGenerateAudio" | "videoWatermark" | "videoMode" | "seedanceDraft" | "seedanceTaskType" | "seedanceSeed" | "seedanceCameraFixed" | "seedanceReturnLastFrame" | "seedanceOutputFormat";
 
 type VideoSettingsPanelProps = {
     config: AiConfig;
@@ -65,6 +65,33 @@ export function VideoSettingsPanel({ config, onConfigChange, theme, showTitle = 
                             <label className="flex h-9 items-center justify-between rounded-full border px-3 text-sm" style={{ borderColor: theme.node.stroke }}>
                                 草稿模式
                                 <Switch size="small" checked={isDraft} onChange={(checked) => { onConfigChange("seedanceDraft", String(checked)); if (checked) onConfigChange("vquality", "480"); }} />
+                            </label>
+                        </div>
+                        <div className="space-y-2.5">
+                            <div className="text-xs" style={{ color: theme.node.muted }}>任务类型</div>
+                            <div className="grid grid-cols-4 gap-2">
+                                {["reference", "auto", "extend", "edit"].map((taskType) => (
+                                    <OptionPill key={taskType} selected={config.seedance.taskType === taskType} theme={theme} onClick={() => { onConfigChange("seedanceTaskType", taskType); if (taskType === "edit") { onConfigChange("size", "auto"); onConfigChange("videoSeconds", "-1"); } }}>{taskType}</OptionPill>
+                                ))}
+                            </div>
+                        </div>
+                        <div className="grid grid-cols-2 gap-2.5">
+                            <label className="flex h-9 items-center justify-between rounded-full border px-3 text-sm" style={{ borderColor: theme.node.stroke }}>
+                                固定镜头
+                                <Switch size="small" checked={config.seedance.cameraFixed} onChange={(checked) => onConfigChange("seedanceCameraFixed", String(checked))} />
+                            </label>
+                            <label className="flex h-9 items-center justify-between rounded-full border px-3 text-sm" style={{ borderColor: theme.node.stroke }}>
+                                返回尾帧
+                                <Switch size="small" checked={config.seedance.returnLastFrame} onChange={(checked) => onConfigChange("seedanceReturnLastFrame", String(checked))} />
+                            </label>
+                        </div>
+                        <div className="grid grid-cols-[1fr_104px] items-center gap-2.5">
+                            <div className="grid grid-cols-2 gap-2">
+                                {(["mp4", "mov"] as const).map((format) => <OptionPill key={format} selected={config.seedance.outputFormat === format} theme={theme} onClick={() => onConfigChange("seedanceOutputFormat", format)}>{format.toUpperCase()}</OptionPill>)}
+                            </div>
+                            <label className="flex h-9 overflow-hidden rounded-full border text-sm" style={{ borderColor: theme.node.stroke }}>
+                                <span className="grid shrink-0 place-items-center px-2 text-xs" style={{ color: theme.node.muted }}>Seed</span>
+                                <input type="number" className="min-w-0 flex-1 bg-transparent pr-2 text-center outline-none [appearance:textfield] [&::-webkit-inner-spin-button]:appearance-none [&::-webkit-outer-spin-button]:appearance-none" value={config.seedance.seed} onChange={(event) => onConfigChange("seedanceSeed", event.target.value)} onMouseDown={(event) => event.stopPropagation()} />
                             </label>
                         </div>
                         {isDraft ? <div className="text-xs" style={{ color: theme.node.muted }}>草稿固定为 480p；生成成功后可在视频节点中发起正式生成。</div> : null}

@@ -257,7 +257,7 @@ const response = await fetch(bridgeUrl, {
 const result = await response.json();
 if (!response.ok) throw new Error(result.error || "Seedance 请求失败");
 if (!result.video_url) throw new Error("Seedance 未返回视频地址");
-return { url: result.video_url, draftTaskId: result.draft_task_id };`;
+return { url: result.video_url, draftTaskId: result.draft_task_id, mimeType: seedance.outputFormat === "mov" ? "video/quicktime" : "video/mp4" };`;
 }
 
 export function getPluginTemplates(): Record<ModelCapability, PluginTemplate[]> {

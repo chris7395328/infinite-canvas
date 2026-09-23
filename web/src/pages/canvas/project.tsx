@@ -143,6 +143,10 @@ function applyGeneratedVideo(item: CanvasNodeData, video: UploadedFile, extra: C
     };
 }
 
+function videoExtension(mimeType?: string) {
+    return /quicktime|mov/i.test(mimeType || "") ? "mov" : "mp4";
+}
+
 export default function CanvasPage() {
     const [mounted, setMounted] = useState(false);
 
@@ -1780,7 +1784,7 @@ function InfiniteCanvasPage() {
 
     const downloadNodeImage = useCallback((node: CanvasNodeData) => {
         if ((node.type !== CanvasNodeType.Image && node.type !== CanvasNodeType.Video && node.type !== CanvasNodeType.Audio) || !node.metadata?.content) return;
-        saveAs(node.metadata.content, `canvas-${node.type}-${node.id}.${node.type === CanvasNodeType.Video ? "mp4" : node.type === CanvasNodeType.Audio ? audioExtension(node.metadata.mimeType) : imageExtension(node.metadata.content)}`);
+        saveAs(node.metadata.content, `canvas-${node.type}-${node.id}.${node.type === CanvasNodeType.Video ? videoExtension(node.metadata.mimeType) : node.type === CanvasNodeType.Audio ? audioExtension(node.metadata.mimeType) : imageExtension(node.metadata.content)}`);
     }, []);
 
     const downloadBatchImage = useCallback((node: CanvasNodeData, imageId: string) => {
@@ -2538,6 +2542,10 @@ function InfiniteCanvasPage() {
                             videoMode: generationConfig.videoMode,
                             seedanceDraft: generationConfig.seedance.draft,
                             seedanceTaskType: generationConfig.seedance.taskType,
+                            seedanceSeed: generationConfig.seedance.seed,
+                            seedanceCameraFixed: generationConfig.seedance.cameraFixed,
+                            seedanceReturnLastFrame: generationConfig.seedance.returnLastFrame,
+                            seedanceOutputFormat: generationConfig.seedance.outputFormat,
                             seedanceFormalResolution: generationConfig.seedance.formalResolution || generationConfig.vquality,
                             references: generationReferenceUrls(generationContext),
                         },
@@ -2745,14 +2753,15 @@ function InfiniteCanvasPage() {
             const node = nodesRef.current.find((item) => item.id === nodeId);
             const draftTaskId = node?.metadata?.seedanceDraftTaskId;
             if (!node || !draftTaskId) return;
+            const draftSeedance = buildGenerationConfig(effectiveConfig, node, "video").seedance;
             void handleGenerateNode(nodeId, "video", node.metadata?.prompt || "", {
                 // Ark's draft-task continuation is the official 1080p final
                 // render route. Never reuse the sample's prior 480p/720p value.
                 vquality: "1080",
-                seedance: { ...effectiveConfig.seedance, draft: false, draftTaskId },
+                seedance: { ...draftSeedance, draft: false, draftTaskId },
             });
         },
-        [effectiveConfig.seedance, handleGenerateNode],
+        [effectiveConfig, handleGenerateNode],
     );
 
     useEffect(() => {

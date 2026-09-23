@@ -69,6 +69,10 @@ export type CanvasNodeMetadata = {
     videoMode?: string;
     seedanceDraft?: boolean;
     seedanceTaskType?: "reference" | "auto" | "extend" | "edit";
+    seedanceSeed?: string;
+    seedanceCameraFixed?: boolean;
+    seedanceReturnLastFrame?: boolean;
+    seedanceOutputFormat?: "mp4" | "mov";
     seedanceDraftTaskId?: string;
     seedanceFormalResolution?: string;
     audioVoice?: string;

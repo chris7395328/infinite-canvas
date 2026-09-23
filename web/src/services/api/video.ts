@@ -126,21 +126,27 @@ async function createPluginVideoTask(config: AiConfig, model: string, script: st
 
 function videoPluginResult(result: unknown): VideoGenerationResult {
     if (result instanceof Blob) return { blob: result };
-    if (typeof result === "string") return { url: result, mimeType: "video/mp4" };
+    if (typeof result === "string") return { url: result, mimeType: videoMimeType(result) };
     if (result && typeof result === "object") {
         const record = result as Record<string, unknown>;
         if (record.blob instanceof Blob) return { blob: record.blob };
         const url = [record.url, record.video_url, record.result_url].find((value) => typeof value === "string" && value) as string | undefined;
-        if (url) return { url, mimeType: "video/mp4", draftTaskId: typeof record.draftTaskId === "string" ? record.draftTaskId : typeof record.draft_task_id === "string" ? record.draft_task_id : undefined };
+        if (url) return { url, mimeType: typeof record.mimeType === "string" ? record.mimeType : videoMimeType(url), draftTaskId: typeof record.draftTaskId === "string" ? record.draftTaskId : typeof record.draft_task_id === "string" ? record.draft_task_id : undefined };
     }
     throw new Error(apiText("scriptNoVideo"));
+}
+
+function videoMimeType(url: string) {
+    return /\.mov(?:[?#]|$)/i.test(url) ? "video/quicktime" : "video/mp4";
 }
 
 export async function storeGeneratedVideo(result: VideoGenerationResult): Promise<UploadedFile> {
     if (result.blob) return uploadMediaFile(result.blob, "video");
     if (result.url) {
         try {
-            return await uploadMediaFile(result.url, "video");
+            const response = await fetch(withLocalProxy(result.url));
+            const blob = await response.blob();
+            return await uploadMediaFile(blob.type ? blob : new Blob([blob], { type: result.mimeType || "video/mp4" }), "video");
         } catch {
             return { url: result.url, storageKey: "", bytes: 0, mimeType: result.mimeType || "video/mp4" };
         }

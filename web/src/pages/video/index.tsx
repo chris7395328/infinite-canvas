@@ -239,7 +239,7 @@ export default function VideoPage() {
     };
 
     const downloadVideo = (video: GeneratedVideo) => {
-        saveAs(video.url, "video.mp4");
+        saveAs(video.url, `video.${/quicktime|mov/i.test(video.mimeType) ? "mov" : "mp4"}`);
     };
 
     const saveResultToAssets = (video: GeneratedVideo) => {
@@ -525,6 +525,10 @@ function GenerationSettings({ config, model, updateConfig, openConfigDialog }: {
                     onConfigChange={(key, value) => {
                         if (key === "seedanceDraft") updateConfig("seedance", { ...config.seedance, draft: value === "true" });
                         else if (key === "seedanceTaskType") updateConfig("seedance", { ...config.seedance, taskType: value as AiConfig["seedance"]["taskType"] });
+                        else if (key === "seedanceSeed") updateConfig("seedance", { ...config.seedance, seed: value });
+                        else if (key === "seedanceCameraFixed") updateConfig("seedance", { ...config.seedance, cameraFixed: value === "true" });
+                        else if (key === "seedanceReturnLastFrame") updateConfig("seedance", { ...config.seedance, returnLastFrame: value === "true" });
+                        else if (key === "seedanceOutputFormat") updateConfig("seedance", { ...config.seedance, outputFormat: value === "mov" ? "mov" : "mp4" });
                         else updateConfig(key, value);
                     }}
                     theme={theme}

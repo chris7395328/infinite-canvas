@@ -1,4 +1,4 @@
-import { Alert, Button, Form, Input, Select, Switch } from "antd";
+import { Alert, Button, Form, Input, Switch } from "antd";
 import { Clapperboard, Plus } from "lucide-react";
 
 import { useConfigStore } from "@/stores/use-config-store";
@@ -40,17 +40,6 @@ export function ConfigSeedance({ onAddModels }: { onAddModels: () => void }) {
                     <Form.Item label="对象前缀" className="mb-0"><Input value={seedance.cosObjectPrefix} onChange={(event) => update("cosObjectPrefix", event.target.value)} /></Form.Item>
                     <Form.Item label="COS Secret ID" className="mb-0"><Input.Password value={seedance.cosSecretId} onChange={(event) => update("cosSecretId", event.target.value)} /></Form.Item>
                     <Form.Item label="COS Secret Key" className="mb-0"><Input.Password value={seedance.cosSecretKey} onChange={(event) => update("cosSecretKey", event.target.value)} /></Form.Item>
-                </div>
-            </section>
-            <section className="mt-4 rounded-lg border border-stone-200 p-3 dark:border-stone-800">
-                <div className="mb-3 text-sm font-semibold">Seedance 2.5 高级参数</div>
-                <div className="grid gap-4 md:grid-cols-3">
-                    <Form.Item label="任务类型" className="mb-0"><Select value={seedance.taskType} options={["reference", "auto", "extend", "edit"].map((value) => ({ value, label: value }))} onChange={(value) => update("taskType", value)} /></Form.Item>
-                    <Form.Item label="随机种子" className="mb-0"><Input value={seedance.seed} onChange={(event) => update("seed", event.target.value)} /></Form.Item>
-                    <Form.Item label="输出格式" className="mb-0"><Select value={seedance.outputFormat} options={["mp4", "mov"].map((value) => ({ value, label: value }))} onChange={(value) => update("outputFormat", value)} /></Form.Item>
-                    <Form.Item label="草稿模式" className="mb-0"><Switch checked={seedance.draft} onChange={(checked) => update("draft", checked)} /></Form.Item>
-                    <Form.Item label="固定镜头" className="mb-0"><Switch checked={seedance.cameraFixed} onChange={(checked) => update("cameraFixed", checked)} /></Form.Item>
-                    <Form.Item label="返回尾帧" className="mb-0"><Switch checked={seedance.returnLastFrame} onChange={(checked) => update("returnLastFrame", checked)} /></Form.Item>
                 </div>
             </section>
         </Form>

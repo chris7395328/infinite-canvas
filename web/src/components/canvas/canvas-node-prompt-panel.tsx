@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import { ArrowUp, LoaderCircle, Maximize2, Square } from "lucide-react";
-import { Button, Modal, Switch, Tooltip } from "antd";
+import { Button, Modal, Tooltip } from "antd";
 import { useTranslation } from "react-i18next";
 
 import { ModelPicker } from "@/components/model-picker";
@@ -14,7 +14,7 @@ import { CanvasPromptChipInput } from "./canvas-prompt-chip-input";
 import { CanvasVideoSettingsPopover } from "./canvas-video-settings-popover";
 import type { VideoSettingsKey } from "@/components/video-settings-panel";
 import { CanvasTextSettingsPopover } from "./canvas-text-settings-popover";
-import { CanvasNodeType, type CanvasGenerationMode, type CanvasNodeData } from "@/types/canvas";
+import { CanvasNodeType, type CanvasGenerationMode, type CanvasNodeData, type CanvasNodeMetadata } from "@/types/canvas";
 import type { CanvasResourceReference } from "@/lib/canvas/canvas-resource-references";
 import { CanvasNodeReferenceBar } from "./canvas-node-reference-bar";
 
@@ -47,7 +47,6 @@ export function CanvasNodePromptPanel({ node, nodes, isRunning, onPromptChange, 
     const hasTextContent = node.type === CanvasNodeType.Text && Boolean(node.metadata?.content?.trim());
     const hasImageContent = node.type === CanvasNodeType.Image && Boolean(node.metadata?.content);
     const isEditingExistingContent = hasTextContent || hasImageContent;
-    const isSeedance25 = mode === "video" && isVolcengineSeedance25(config);
     const canGenerateFormal = mode === "video" && Boolean(node.metadata?.seedanceDraftTaskId) && isVolcengineSeedance25(config);
     const [prompt, setPrompt] = useState(node.metadata?.composerContent ?? node.metadata?.prompt ?? "");
     const [expanded, setExpanded] = useState(false);
@@ -156,13 +155,6 @@ export function CanvasNodePromptPanel({ node, nodes, isRunning, onPromptChange, 
                     </span>
                 </Button>
             </div>
-            {isSeedance25 ? (
-                <div className="mt-2 flex flex-wrap items-center gap-4 text-xs" style={{ color: theme.node.muted }}>
-                    <label className="inline-flex items-center gap-2">视频编辑 <Switch size="small" checked={config.seedance.taskType === "edit"} onChange={(checked) => { changeVideoConfig("seedanceTaskType", checked ? "edit" : "reference"); if (checked) { changeVideoConfig("size", "auto"); changeVideoConfig("videoSeconds", "-1"); } }} /></label>
-                    <label className="inline-flex items-center gap-2">草稿模式 <Switch size="small" checked={config.seedance.draft} onChange={(checked) => { changeVideoConfig("seedanceDraft", String(checked)); if (checked) changeVideoConfig("vquality", "480"); }} /></label>
-                    {config.seedance.draft ? <span>480p 已锁定</span> : null}
-                </div>
-            ) : null}
             <Modal title={t("canvas.promptPanel.editorTitle")} open={expanded} centered width={760} footer={null} onCancel={() => setExpanded(false)} destroyOnHidden>
                 <div data-canvas-no-zoom className="pt-2" onWheelCapture={(event) => event.stopPropagation()}>
                     <CanvasNodeReferenceBar nodeId={node.id} nodes={nodes} connectedNodes={connectedNodes} onDisconnect={onDisconnectReference} onStartSelection={(nodeId) => { setExpanded(false); onStartReferenceSelection?.(nodeId); }} />
@@ -201,6 +193,10 @@ function buildNodeConfig(globalConfig: AiConfig, node: CanvasNodeData, mode: Can
             ...globalConfig.seedance,
             draft: node.metadata?.seedanceDraft ?? globalConfig.seedance.draft,
             taskType: node.metadata?.seedanceTaskType || globalConfig.seedance.taskType,
+            seed: node.metadata?.seedanceSeed ?? globalConfig.seedance.seed,
+            cameraFixed: node.metadata?.seedanceCameraFixed ?? globalConfig.seedance.cameraFixed,
+            returnLastFrame: node.metadata?.seedanceReturnLastFrame ?? globalConfig.seedance.returnLastFrame,
+            outputFormat: node.metadata?.seedanceOutputFormat ?? globalConfig.seedance.outputFormat,
             draftTaskId: node.metadata?.seedanceDraftTaskId,
             formalResolution: node.metadata?.seedanceFormalResolution,
         },
@@ -212,13 +208,17 @@ function buildNodeConfig(globalConfig: AiConfig, node: CanvasNodeData, mode: Can
     };
 }
 
-function videoConfigPatch(key: VideoSettingsKey, value: string) {
+function videoConfigPatch(key: VideoSettingsKey, value: string): Partial<CanvasNodeMetadata> {
     if (key === "videoSeconds") return { seconds: value };
     if (key === "videoGenerateAudio") return { generateAudio: value };
     if (key === "videoWatermark") return { watermark: value };
     if (key === "videoMode") return { videoMode: value };
     if (key === "seedanceDraft") return { seedanceDraft: value === "true" };
     if (key === "seedanceTaskType") return { seedanceTaskType: value as "reference" | "auto" | "extend" | "edit" };
+    if (key === "seedanceSeed") return { seedanceSeed: value };
+    if (key === "seedanceCameraFixed") return { seedanceCameraFixed: value === "true" };
+    if (key === "seedanceReturnLastFrame") return { seedanceReturnLastFrame: value === "true" };
+    if (key === "seedanceOutputFormat") return { seedanceOutputFormat: value === "mov" ? "mov" : "mp4" };
     return { [key]: value };
 }
 
