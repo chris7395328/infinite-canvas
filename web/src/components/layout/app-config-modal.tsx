@@ -118,8 +118,8 @@ export function AppConfigPanel({ showDoneButton = false, initialTab = "channels"
         const models = ["doubao-seedance-2-5-260628", "doubao-seedance-1-0-pro-250528", "doubao-seedance-1-0-lite-i2v-250428"].map((name) => ({ name, capability: "video" as const, script: getVolcengineSeedanceScript() }));
         const existing = config.channels.find((channel) => channel.name === "火山方舟 Seedance");
         const channel = existing
-            ? { ...existing, baseUrl: "https://ark.cn-beijing.volces.com/api/v3", models }
-            : createModelChannel({ name: "火山方舟 Seedance", baseUrl: "https://ark.cn-beijing.volces.com/api/v3", apiFormat: "openai", models });
+            ? { ...existing, baseUrl: "https://ark.cn-beijing.volces.com/api/v3", apiFormat: "volcengine" as ApiCallFormat, models }
+            : createModelChannel({ name: "火山方舟 Seedance", baseUrl: "https://ark.cn-beijing.volces.com/api/v3", apiFormat: "volcengine", models });
         updateChannels(existing ? config.channels.map((item) => (item.id === channel.id ? channel : item)) : [...config.channels, channel]);
         setEditingChannelId(channel.id);
         message.success("已添加火山方舟 Seedance 渠道，请填写 API Key。");
@@ -410,6 +410,7 @@ function normalizeImageCount(value: string) {
 
 function apiFormatLabel(apiFormat: ApiCallFormat) {
     if (apiFormat === "gemini") return "Gemini";
+    if (apiFormat === "volcengine") return "火山方舟";
     return "OpenAI";
 }
 

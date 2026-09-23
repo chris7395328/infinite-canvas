@@ -520,7 +520,17 @@ function GenerationSettings({ config, model, updateConfig, openConfigDialog }: {
                 <ModelPicker config={config} value={model} onChange={(value) => updateConfig("videoModel", value)} capability="video" fullWidth onMissingConfig={() => openConfigDialog(false)} />
             </label>
             <div className="col-span-2">
-                <VideoSettingsPanel config={config} onConfigChange={(key, value) => updateConfig(key, value)} theme={theme} showTitle={false} className="space-y-4" />
+                <VideoSettingsPanel
+                    config={config}
+                    onConfigChange={(key, value) => {
+                        if (key === "seedanceDraft") updateConfig("seedance", { ...config.seedance, draft: value === "true" });
+                        else if (key === "seedanceTaskType") updateConfig("seedance", { ...config.seedance, taskType: value as AiConfig["seedance"]["taskType"] });
+                        else updateConfig(key, value);
+                    }}
+                    theme={theme}
+                    showTitle={false}
+                    className="space-y-4"
+                />
             </div>
         </>
     );

@@ -8,7 +8,7 @@ import { useTranslation } from "react-i18next";
 import { requestEdit, requestGeneration, requestImageQuestion } from "@/services/api/image";
 import { requestAudioGeneration, storeGeneratedAudio } from "@/services/api/audio";
 import { createVideoGenerationTask, isVideoTaskFailed, storeGeneratedVideo, waitForVideoGenerationTask } from "@/services/api/video";
-import { defaultConfig, useConfigStore, useEffectiveConfig } from "@/stores/use-config-store";
+import { defaultConfig, useConfigStore, useEffectiveConfig, type AiConfig } from "@/stores/use-config-store";
 import { ensureImagePreview, uploadImage } from "@/services/image-storage";
 import { uploadMediaFile, type UploadedFile } from "@/services/file-storage";
 import { nanoid } from "nanoid";
@@ -311,8 +311,9 @@ function InfiniteCanvasPage() {
             if (task.provider !== "plugin") {
                 setNodes((prev) => prev.map((item) => (item.id === nodeId ? { ...item, metadata: { ...item.metadata, videoTaskId: task.id, videoTaskProvider: task.provider === "gemini" ? "gemini" : "openai", model: config.model } } : item)));
             }
-            const video = await storeGeneratedVideo(await waitForVideoGenerationTask(config, task, { signal }));
-            setNodes((prev) => prev.map((item) => (item.id === nodeId ? applyGeneratedVideo(item, video, { prompt, model: config.model, ...extra }) : item)));
+            const result = await waitForVideoGenerationTask(config, task, { signal });
+            const video = await storeGeneratedVideo(result);
+            setNodes((prev) => prev.map((item) => (item.id === nodeId ? applyGeneratedVideo(item, video, { prompt, model: config.model, ...(result.draftTaskId ? { seedanceDraftTaskId: result.draftTaskId } : {}), ...extra }) : item)));
         },
         [],
     );
@@ -2303,9 +2304,10 @@ function InfiniteCanvasPage() {
     }, []);
 
     const handleGenerateNode = useCallback(
-        async (nodeId: string, mode: CanvasNodeGenerationMode, prompt: string) => {
+        async (nodeId: string, mode: CanvasNodeGenerationMode, prompt: string, overrides?: Partial<AiConfig>) => {
             const sourceNode = nodesRef.current.find((node) => node.id === nodeId);
-            const generationConfig = buildGenerationConfig(effectiveConfig, sourceNode, mode);
+            const baseGenerationConfig = buildGenerationConfig(effectiveConfig, sourceNode, mode);
+            const generationConfig = overrides ? { ...baseGenerationConfig, ...overrides, seedance: { ...baseGenerationConfig.seedance, ...overrides.seedance } } : baseGenerationConfig;
             if (!isAiConfigReady(generationConfig, generationConfig.model)) {
                 openConfigDialog(true);
                 return;
@@ -2534,6 +2536,9 @@ function InfiniteCanvasPage() {
                             generateAudio: generationConfig.videoGenerateAudio,
                             watermark: generationConfig.videoWatermark,
                             videoMode: generationConfig.videoMode,
+                            seedanceDraft: generationConfig.seedance.draft,
+                            seedanceTaskType: generationConfig.seedance.taskType,
+                            seedanceFormalResolution: generationConfig.seedance.formalResolution || generationConfig.vquality,
                             references: generationReferenceUrls(generationContext),
                         },
                     };
@@ -2734,6 +2739,20 @@ function InfiniteCanvasPage() {
         },
         [completeVideoNodeTask, effectiveConfig, finishGenerationRequest, isAiConfigReady, message, openConfigDialog, startGenerationRequest, t],
     );
+
+    const handleGenerateSeedanceFormal = useCallback(
+        (nodeId: string) => {
+            const node = nodesRef.current.find((item) => item.id === nodeId);
+            const draftTaskId = node?.metadata?.seedanceDraftTaskId;
+            if (!node || !draftTaskId) return;
+            void handleGenerateNode(nodeId, "video", node.metadata?.prompt || "", {
+                vquality: node.metadata?.seedanceFormalResolution || "1080",
+                seedance: { ...effectiveConfig.seedance, draft: false, draftTaskId },
+            });
+        },
+        [effectiveConfig.seedance, handleGenerateNode],
+    );
+
     useEffect(() => {
         generateNodeRef.current = handleGenerateNode;
     }, [handleGenerateNode]);
@@ -3073,6 +3092,7 @@ function InfiniteCanvasPage() {
                     onPromptChange={handleNodePromptChange}
                     onConfigChange={handleConfigNodeChange}
                     onGenerate={handleGenerateNode}
+                    onGenerateFormal={handleGenerateSeedanceFormal}
                     onStop={confirmStopGeneration}
                     onDisconnectReference={disconnectNodeReference}
                     onStartReferenceSelection={startNodeReferenceSelection}
@@ -3083,7 +3103,7 @@ function InfiniteCanvasPage() {
                     }}
                 />
             ),
-        [configInputsById, confirmStopGeneration, connectedNodesByNodeId, disconnectNodeReference, handleConfigNodeChange, handleGenerateNode, handleNodePromptChange, mentionReferencesByNodeId, nodes, renderPluginPanel, runningNodeId, startNodeReferenceSelection],
+        [configInputsById, confirmStopGeneration, connectedNodesByNodeId, disconnectNodeReference, handleConfigNodeChange, handleGenerateNode, handleGenerateSeedanceFormal, handleNodePromptChange, mentionReferencesByNodeId, nodes, renderPluginPanel, runningNodeId, startNodeReferenceSelection],
     );
 
     const renderNodeContentPanel = useCallback(

@@ -237,30 +237,34 @@ async function generateSeedance(input) {
     const model = required(input.model, "Seedance 模型");
     const apiKey = required(input.apiKey, "方舟 API Key");
     const params = input.params || {};
+    const draftTaskId = String(input.draftTaskId || "").trim();
     const rawReferences = [
         ...(input.images || []).map((url) => ({ url, kind: "image" })),
         ...(input.videos || []).map((url) => ({ url, kind: "video" })),
         ...(input.audios || []).map((url) => ({ url, kind: "audio" })),
     ];
-    const references = await Promise.all(rawReferences.map(async (item) => ({ ...item, url: settings.usePrivateAssets ? await preparePrivateAsset(item.url, item.kind, settings) : item.url })));
+    const references = draftTaskId ? [] : await Promise.all(rawReferences.map(async (item) => ({ ...item, url: settings.usePrivateAssets ? await preparePrivateAsset(item.url, item.kind, settings) : item.url })));
     const isV25 = /seedance-2-5/i.test(model);
-    const body = {
-        model,
-        content: seedanceContent(input.prompt, references, params.mode),
-        resolution: params.resolution || "720p",
-        ratio: params.ratio || "16:9",
-        duration: Number(params.seconds) || 8,
-        generate_audio: params.generateAudio !== false,
-        watermark: params.watermark === true,
-        ...(isV25 ? {
-            omni_reference_task_type: settings.taskType || "reference",
-            draft: settings.draft === true,
-            output_format: settings.outputFormat === "mov" ? "mov" : "mp4",
-            seed: Number(settings.seed) || -1,
-            camera_fixed: settings.cameraFixed === true,
-            return_last_frame: settings.returnLastFrame === true,
-        } : {}),
-    };
+    const isEdit = isV25 && settings.taskType === "edit";
+    const body = draftTaskId
+        ? { model, content: [{ type: "draft_task", draft_task: { id: draftTaskId } }], resolution: params.resolution || "720p" }
+        : {
+              model,
+              content: seedanceContent(input.prompt, references, params.mode),
+              resolution: params.resolution || "720p",
+              ratio: isEdit ? "adaptive" : params.ratio || "16:9",
+              duration: isEdit ? -1 : Number(params.seconds) || 8,
+              generate_audio: params.generateAudio !== false,
+              watermark: params.watermark === true,
+              ...(isV25 ? {
+                  omni_reference_task_type: settings.taskType || "reference",
+                  draft: settings.draft === true,
+                  output_format: settings.outputFormat === "mov" ? "mov" : "mp4",
+                  seed: Number(settings.seed) || -1,
+                  camera_fixed: settings.cameraFixed === true,
+                  return_last_frame: settings.returnLastFrame === true,
+              } : {}),
+          };
     const created = await fetch(`${ARK_BASE_URL}/contents/generations/tasks`, {
         method: "POST",
         headers: { "content-type": "application/json", authorization: `Bearer ${apiKey}` },

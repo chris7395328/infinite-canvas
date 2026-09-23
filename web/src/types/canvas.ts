@@ -67,6 +67,10 @@ export type CanvasNodeMetadata = {
     generateAudio?: string;
     watermark?: string;
     videoMode?: string;
+    seedanceDraft?: boolean;
+    seedanceTaskType?: "reference" | "auto" | "extend" | "edit";
+    seedanceDraftTaskId?: string;
+    seedanceFormalResolution?: string;
     audioVoice?: string;
     audioFormat?: string;
     audioSpeed?: string;

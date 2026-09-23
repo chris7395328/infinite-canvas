@@ -115,6 +115,13 @@ export function buildGenerationConfig(config: AiConfig, node: CanvasNodeData | u
         videoGenerateAudio: node?.metadata?.generateAudio || config.videoGenerateAudio || defaultConfig.videoGenerateAudio,
         videoWatermark: node?.metadata?.watermark || config.videoWatermark || defaultConfig.videoWatermark,
         videoMode: node?.metadata?.videoMode || config.videoMode || defaultConfig.videoMode,
+        seedance: {
+            ...config.seedance,
+            draft: node?.metadata?.seedanceDraft ?? config.seedance.draft,
+            taskType: node?.metadata?.seedanceTaskType || config.seedance.taskType,
+            draftTaskId: node?.metadata?.seedanceDraftTaskId,
+            formalResolution: node?.metadata?.seedanceFormalResolution,
+        },
         audioVoice: node?.metadata?.audioVoice || config.audioVoice || defaultConfig.audioVoice,
         audioFormat: node?.metadata?.audioFormat || config.audioFormat || defaultConfig.audioFormat,
         audioSpeed: node?.metadata?.audioSpeed || config.audioSpeed || defaultConfig.audioSpeed,

@@ -250,13 +250,14 @@ const response = await fetch(bridgeUrl, {
     videos: await Promise.all(videos.map(toDataUrl)),
     audios: await Promise.all(audios.map(toDataUrl)),
     params,
+    draftTaskId: seedance.draftTaskId,
     seedance,
   }),
 });
 const result = await response.json();
 if (!response.ok) throw new Error(result.error || "Seedance 请求失败");
 if (!result.video_url) throw new Error("Seedance 未返回视频地址");
-return { url: result.video_url };`;
+return { url: result.video_url, draftTaskId: result.draft_task_id };`;
 }
 
 export function getPluginTemplates(): Record<ModelCapability, PluginTemplate[]> {

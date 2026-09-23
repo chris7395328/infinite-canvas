@@ -5,7 +5,7 @@ import { nanoid } from "nanoid";
 
 import i18n from "@/i18n";
 
-export type ApiCallFormat = "openai" | "gemini";
+export type ApiCallFormat = "openai" | "gemini" | "volcengine";
 export type ModelCapability = "image" | "video" | "text" | "audio";
 export type ReasoningEffort = "auto" | "low" | "medium" | "high" | "xhigh";
 
@@ -44,6 +44,8 @@ export type SeedanceConfig = {
     cameraFixed: boolean;
     returnLastFrame: boolean;
     outputFormat: "mp4" | "mov";
+    draftTaskId?: string;
+    formalResolution?: string;
 };
 
 export type AiConfig = {
@@ -492,6 +494,10 @@ export function resolveModelRequestConfig(config: AiConfig, value: string) {
     };
 }
 
+export function isVolcengineSeedance25(config: AiConfig) {
+    return resolveModelChannel(config, config.model).apiFormat === "volcengine" && modelOptionName(config.model).toLowerCase().includes("doubao-seedance-2-5");
+}
+
 function normalizeChannels(config: AiConfig) {
     const persistedChannels = Array.isArray(config.channels) ? config.channels : [];
     const channels = persistedChannels.map((channel, index) =>
@@ -519,11 +525,12 @@ function normalizeChannels(config: AiConfig) {
 
 export function defaultBaseUrlForApiFormat(apiFormat: ApiCallFormat) {
     if (apiFormat === "gemini") return GEMINI_BASE_URL;
+    if (apiFormat === "volcengine") return "https://ark.cn-beijing.volces.com/api/v3";
     return OPENAI_BASE_URL;
 }
 
 function normalizeApiFormat(apiFormat: unknown): ApiCallFormat {
-    return apiFormat === "gemini" ? apiFormat : "openai";
+    return apiFormat === "gemini" || apiFormat === "volcengine" ? apiFormat : "openai";
 }
 
 function uniqueModelOptions(models: string[]) {
@@ -533,6 +540,7 @@ function uniqueModelOptions(models: string[]) {
 export function buildApiUrl(baseUrl: string, path: string) {
     const normalizedBaseUrl = baseUrl.trim().replace(/\/+$/, "");
     const lowerBaseUrl = normalizedBaseUrl.toLowerCase();
+    if (lowerBaseUrl.endsWith("/api/v3")) return `${normalizedBaseUrl}${path.startsWith("/") ? path : `/${path}`}`;
     const apiBaseUrl = lowerBaseUrl.endsWith("/v1") ? normalizedBaseUrl : `${normalizedBaseUrl}/v1`;
     return withLocalProxy(`${apiBaseUrl}${path}`);
 }
