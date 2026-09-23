@@ -495,7 +495,14 @@ export function resolveModelRequestConfig(config: AiConfig, value: string) {
 }
 
 export function isVolcengineSeedance25(config: AiConfig) {
-    return resolveModelChannel(config, config.model).apiFormat === "volcengine" && modelOptionName(config.model).toLowerCase().includes("doubao-seedance-2-5");
+    const channel = resolveModelChannel(config, config.model);
+    // Channels saved before the dedicated Volcengine format was added kept the
+    // OpenAI format, but already pointed at Ark's v3 endpoint. Keep those
+    // existing local configurations working rather than hiding 2.5 controls.
+    const isArkChannel =
+        channel.apiFormat === "volcengine" ||
+        /ark\.cn-beijing\.volces\.com\/api\/v3/i.test(channel.baseUrl || "");
+    return isArkChannel && modelOptionName(config.model).toLowerCase().includes("doubao-seedance-2-5");
 }
 
 function normalizeChannels(config: AiConfig) {
