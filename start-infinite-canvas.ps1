@@ -39,7 +39,8 @@ if ($isRunning) {
     if (-not $isRunning) { Write-Error "服务未能在 10 秒内启动。请查看日志：$stderrLog" }
 }
 
-if ($SeedanceBridge -or $restartSeedanceBridge) {
-    $bridgeArgs = if ($restartSeedanceBridge) { @("-Restart") } else { @() }
-    & (Join-Path $projectRoot "start-seedance-bridge.ps1") @bridgeArgs
+if ($RestartSeedanceBridge) {
+    & (Join-Path $projectRoot "start-seedance-bridge.ps1") -Restart
+} elseif ($SeedanceBridge) {
+    & (Join-Path $projectRoot "start-seedance-bridge.ps1")
 }
