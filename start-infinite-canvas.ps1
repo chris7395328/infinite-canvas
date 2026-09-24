@@ -37,15 +37,5 @@ if ($isRunning) {
 }
 
 if ($SeedanceBridge) {
-    $bridgePort = 23210
-    $bridgeRunning = Test-NetConnection -ComputerName 127.0.0.1 -Port $bridgePort -InformationLevel Quiet -WarningAction SilentlyContinue
-    if ($bridgeRunning) {
-        Write-Host "Seedance bridge 已在运行：http://127.0.0.1:$bridgePort"
-    } else {
-        New-Item -ItemType Directory -Path $runtimeDirectory -Force | Out-Null
-        $bridgeOut = Join-Path $runtimeDirectory "seedance-bridge.stdout.log"
-        $bridgeErr = Join-Path $runtimeDirectory "seedance-bridge.stderr.log"
-        $bridge = Start-Process -FilePath "node.exe" -ArgumentList ".\\canvas-proxy\\index.js" -WorkingDirectory $projectRoot -WindowStyle Hidden -RedirectStandardOutput $bridgeOut -RedirectStandardError $bridgeErr -PassThru
-        Write-Host "正在启动 Seedance bridge（PID $($bridge.Id)）..."
-    }
+    & (Join-Path $projectRoot "start-seedance-bridge.ps1")
 }

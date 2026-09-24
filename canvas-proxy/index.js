@@ -246,6 +246,7 @@ async function generateSeedance(input) {
     const references = draftTaskId ? [] : await Promise.all(rawReferences.map(async (item) => ({ ...item, url: settings.usePrivateAssets ? await preparePrivateAsset(item.url, item.kind, settings) : item.url })));
     const isV25 = /seedance-2-5/i.test(model);
     const isEdit = isV25 && settings.taskType === "edit";
+    const isAdaptiveTask = isV25 && ["extend", "edit"].includes(settings.taskType);
     const body = draftTaskId
         // Ark accepts only 1080p for an official Seedance 2.5 draft-task final.
         // Enforce it at the bridge boundary as well as in the canvas UI.
@@ -254,7 +255,7 @@ async function generateSeedance(input) {
               model,
               content: seedanceContent(input.prompt, references, params.mode),
               resolution: params.resolution || "720p",
-              ratio: isEdit ? "adaptive" : params.ratio || "16:9",
+              ratio: isAdaptiveTask ? "adaptive" : params.ratio || "16:9",
               duration: isEdit ? -1 : Number(params.seconds) || 8,
               generate_audio: params.generateAudio !== false,
               watermark: params.watermark === true,

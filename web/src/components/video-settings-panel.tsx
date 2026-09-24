@@ -17,6 +17,12 @@ const videoModeOptions = [
     { value: "frames", labelKey: "frames" },
     { value: "reference", labelKey: "reference" },
 ];
+const seedanceTaskTypeLabels = {
+    reference: "全模态参考",
+    auto: "自动识别",
+    extend: "延长视频",
+    edit: "视频编辑",
+} as const;
 
 export const videoResolutionOptions = resolutionOptions.map((item) => ({ value: item.value, label: item.label }));
 export const videoSizeOptions = videoRatioOptions.map((item) => ({ value: item.value, get label() { return item.value === "auto" ? i18n.t("settingsPanels.common.auto") : item.value; } }));
@@ -59,8 +65,8 @@ export function VideoSettingsPanel({ config, onConfigChange, theme, showTitle = 
                         <div className="space-y-2.5">
                             <div className="text-xs" style={{ color: theme.node.muted }}>任务类型</div>
                             <div className="grid grid-cols-4 gap-2">
-                                {["reference", "auto", "extend", "edit"].map((taskType) => (
-                                    <OptionPill key={taskType} selected={config.seedance.taskType === taskType} theme={theme} onClick={() => { onConfigChange("seedanceTaskType", taskType); if (taskType === "edit") { onConfigChange("size", "auto"); onConfigChange("videoSeconds", "-1"); } }}>{taskType}</OptionPill>
+                                {(Object.keys(seedanceTaskTypeLabels) as Array<keyof typeof seedanceTaskTypeLabels>).map((taskType) => (
+                                    <OptionPill key={taskType} selected={config.seedance.taskType === taskType} theme={theme} onClick={() => { onConfigChange("seedanceTaskType", taskType); if (taskType === "extend" || taskType === "edit") onConfigChange("size", "auto"); if (taskType === "edit") onConfigChange("videoSeconds", "-1"); }}><span className="block truncate whitespace-nowrap">{seedanceTaskTypeLabels[taskType]}</span></OptionPill>
                                 ))}
                             </div>
                         </div>
@@ -178,7 +184,7 @@ function updateDimension(key: "width" | "height", value: number | null, dimensio
 
 function OptionPill({ selected, disabled = false, theme, onClick, children }: { selected: boolean; disabled?: boolean; theme: CanvasTheme; onClick: () => void; children: ReactNode }) {
     return (
-        <button type="button" disabled={disabled} className="h-9 cursor-pointer rounded-full border px-2 text-sm transition hover:opacity-80 disabled:cursor-not-allowed disabled:opacity-35" style={{ background: "transparent", borderColor: selected ? theme.node.text : theme.node.stroke, color: theme.node.text }} onMouseDown={(event) => event.stopPropagation()} onClick={onClick}>
+        <button type="button" disabled={disabled} className="h-9 min-w-0 cursor-pointer overflow-hidden rounded-full border px-2 text-sm transition hover:opacity-80 disabled:cursor-not-allowed disabled:opacity-35" style={{ background: "transparent", borderColor: selected ? theme.node.text : theme.node.stroke, color: theme.node.text }} onMouseDown={(event) => event.stopPropagation()} onClick={onClick}>
             {children}
         </button>
     );
