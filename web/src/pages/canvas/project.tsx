@@ -317,7 +317,7 @@ function InfiniteCanvasPage() {
             }
             const result = await waitForVideoGenerationTask(config, task, { signal });
             const video = await storeGeneratedVideo(result);
-            setNodes((prev) => prev.map((item) => (item.id === nodeId ? applyGeneratedVideo(item, video, { prompt, model: config.model, ...(result.draftTaskId ? { seedanceDraftTaskId: result.draftTaskId } : {}), ...extra }) : item)));
+            setNodes((prev) => prev.map((item) => (item.id === nodeId ? applyGeneratedVideo(item, video, { prompt, model: config.model, ...(result.draftTaskId && config.seedance.draft ? { seedanceDraftTaskId: result.draftTaskId } : {}), ...extra }) : item)));
         },
         [],
     );

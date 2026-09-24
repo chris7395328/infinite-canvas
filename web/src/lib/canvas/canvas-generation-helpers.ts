@@ -103,6 +103,7 @@ export function getInputSummary(inputs: NodeGenerationInput[]) {
 }
 
 export function buildGenerationConfig(config: AiConfig, node: CanvasNodeData | undefined, mode: CanvasNodeGenerationMode): AiConfig {
+    const draft = node?.metadata?.seedanceDraft ?? config.seedance.draft;
     return {
         ...config,
         model: resolveModelForCapability(config, node?.metadata?.model, mode),
@@ -117,13 +118,13 @@ export function buildGenerationConfig(config: AiConfig, node: CanvasNodeData | u
         videoMode: node?.metadata?.videoMode || config.videoMode || defaultConfig.videoMode,
         seedance: {
             ...config.seedance,
-            draft: node?.metadata?.seedanceDraft ?? config.seedance.draft,
+            draft,
             taskType: node?.metadata?.seedanceTaskType || config.seedance.taskType,
             seed: node?.metadata?.seedanceSeed ?? config.seedance.seed,
             cameraFixed: node?.metadata?.seedanceCameraFixed ?? config.seedance.cameraFixed,
             returnLastFrame: node?.metadata?.seedanceReturnLastFrame ?? config.seedance.returnLastFrame,
             outputFormat: node?.metadata?.seedanceOutputFormat ?? config.seedance.outputFormat,
-            draftTaskId: node?.metadata?.seedanceDraftTaskId,
+            draftTaskId: draft ? node?.metadata?.seedanceDraftTaskId : undefined,
             formalResolution: node?.metadata?.seedanceFormalResolution,
         },
         audioVoice: node?.metadata?.audioVoice || config.audioVoice || defaultConfig.audioVoice,

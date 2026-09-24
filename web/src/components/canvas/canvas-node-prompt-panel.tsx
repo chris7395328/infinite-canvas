@@ -47,7 +47,7 @@ export function CanvasNodePromptPanel({ node, nodes, isRunning, onPromptChange, 
     const hasTextContent = node.type === CanvasNodeType.Text && Boolean(node.metadata?.content?.trim());
     const hasImageContent = node.type === CanvasNodeType.Image && Boolean(node.metadata?.content);
     const isEditingExistingContent = hasTextContent || hasImageContent;
-    const canGenerateFormal = mode === "video" && Boolean(node.metadata?.seedanceDraftTaskId) && isVolcengineSeedance25(config);
+    const canGenerateFormal = mode === "video" && node.metadata?.seedanceDraft !== false && Boolean(node.metadata?.seedanceDraftTaskId) && isVolcengineSeedance25(config);
     const [prompt, setPrompt] = useState(node.metadata?.composerContent ?? node.metadata?.prompt ?? "");
     const [expanded, setExpanded] = useState(false);
 
@@ -179,6 +179,7 @@ function defaultMode(type: CanvasNodeData["type"]): CanvasNodeGenerationMode {
 }
 
 function buildNodeConfig(globalConfig: AiConfig, node: CanvasNodeData, mode: CanvasNodeGenerationMode): AiConfig {
+    const draft = node.metadata?.seedanceDraft ?? globalConfig.seedance.draft;
     return {
         ...globalConfig,
         model: resolveModelForCapability(globalConfig, node.metadata?.model, mode),
@@ -193,13 +194,13 @@ function buildNodeConfig(globalConfig: AiConfig, node: CanvasNodeData, mode: Can
         videoMode: node.metadata?.videoMode || globalConfig.videoMode || defaultConfig.videoMode,
         seedance: {
             ...globalConfig.seedance,
-            draft: node.metadata?.seedanceDraft ?? globalConfig.seedance.draft,
+            draft,
             taskType: node.metadata?.seedanceTaskType || globalConfig.seedance.taskType,
             seed: node.metadata?.seedanceSeed ?? globalConfig.seedance.seed,
             cameraFixed: node.metadata?.seedanceCameraFixed ?? globalConfig.seedance.cameraFixed,
             returnLastFrame: node.metadata?.seedanceReturnLastFrame ?? globalConfig.seedance.returnLastFrame,
             outputFormat: node.metadata?.seedanceOutputFormat ?? globalConfig.seedance.outputFormat,
-            draftTaskId: node.metadata?.seedanceDraftTaskId,
+            draftTaskId: draft ? node.metadata?.seedanceDraftTaskId : undefined,
             formalResolution: node.metadata?.seedanceFormalResolution,
         },
         audioVoice: node.metadata?.audioVoice || globalConfig.audioVoice || defaultConfig.audioVoice,
