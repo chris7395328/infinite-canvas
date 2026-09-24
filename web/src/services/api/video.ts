@@ -221,7 +221,8 @@ async function videoResultFromUrl(url: string, options?: RequestOptions): Promis
 }
 
 type OmniContent = { type: "text"; text: string } | { type: "image" | "video"; data: string; mime_type: string };
-type OmniInteraction = { id?: string; status?: string; error?: { message?: string }; steps?: Array<{ type?: string; content?: Array<{ type?: string; data?: string; uri?: string; mime_type?: string }> }> };
+type OmniVideoOutput = { type?: string; data?: string; uri?: string; mime_type?: string };
+type OmniInteraction = { id?: string; status?: string; error?: { message?: string }; output_video?: OmniVideoOutput; steps?: Array<{ type?: string; content?: OmniVideoOutput[] }> };
 function isOmniModel(model: string) { return /^gemini-omni-/i.test(modelOptionName(model).replace(/^models\//, "")); }
 function omniVideoUrl(config: AiConfig, id = "") {
     // Omni requires the Google Gemini API, not an OpenAI-compatible channel URL.
@@ -233,7 +234,9 @@ function omniVideoUrl(config: AiConfig, id = "") {
     }
     return withLocalProxy(`${base}/interactions${id ? "/" + encodeURIComponent(id) : ""}`);
 }
-function omniVideoOutput(interaction: OmniInteraction) {
+function omniVideoOutput(interaction: OmniInteraction): OmniVideoOutput | undefined {
+    // The public Omni response uses output_video; older interactions may return steps.
+    if (interaction.output_video?.data || interaction.output_video?.uri) return interaction.output_video;
     return interaction.steps?.filter((step) => step.type === "model_output").flatMap((step) => step.content || []).find((item) => item.type === "video");
 }
 function omniResult(output: NonNullable<ReturnType<typeof omniVideoOutput>>, config: AiConfig): VideoGenerationResult {
@@ -281,16 +284,20 @@ async function createOmniVideoTask(config: AiConfig, model: string, prompt: stri
             response_format: { type: "video", aspect_ratio: ratio === "9:16" ? ratio : "16:9",
                 resolution: resolution === "360p" || resolution === "1080p" ? resolution : resolution === "4kp" || resolution === "2160p" ? "4k" : "720p",
                 duration: `${seconds}s`, delivery: "uri" },
-            background: true,
+            // Official synchronous unary mode avoids a separate Interactions GET;
+            // Google's retrieval endpoint has reports of rejecting otherwise valid keys.
+            background: false,
+            store: false,
+            stream: false,
         }, { headers: geminiVideoHeaders(config), signal: options?.signal })).data;
         if (interaction.error) throw new Error(interaction.error.message || "Omni generation failed");
-        if (!interaction.id) throw new Error(apiText("noVideoTaskId"));
         const output = omniVideoOutput(interaction);
-        if (interaction.status === "completed" && output) {
+        if (output) {
             const id = nanoid();
             pluginVideoResults.set(id, omniResult(output, config));
             return { id, provider: "plugin", model };
         }
+        if (!interaction.id) throw new Error(apiText("noVideoTaskId"));
         return { id: interaction.id, provider: "omni", model };
     } catch (error) { throw new Error(readAxiosError(error, apiText("videoTaskCreateFailed"))); }
 }
@@ -301,7 +308,13 @@ async function pollOmniVideoTask(config: AiConfig, task: VideoGenerationTask, op
         if (interaction.status !== "completed") return { status: "pending" };
         const output = omniVideoOutput(interaction);
         return output ? { status: "completed", result: omniResult(output, config) } : { status: "failed", error: apiText("noPlayableVideo") };
-    } catch (error) { throw new Error(readAxiosError(error, apiText("videoTaskQueryFailed"))); }
+    } catch (error) {
+        const detail = readAxiosError(error, apiText("videoTaskQueryFailed"));
+        if (/API key not valid/i.test(detail)) {
+            throw new Error(`Omni 任务已创建，但 Google Interactions 查询接口返回认证错误（目前有同类官方社区报告）。这不代表你的 Key 一定无效。详情：${detail}`);
+        }
+        throw new Error(`Omni 任务查询失败：${detail}`);
+    }
 }
 async function createGeminiVideoTask(config: AiConfig, model: string, prompt: string, references: ReferenceImage[], options?: VideoMediaOptions): Promise<VideoGenerationTask> {
     const images = await Promise.all(references.map((image) => imageToDataUrl(image)));
