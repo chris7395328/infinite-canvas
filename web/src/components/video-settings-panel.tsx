@@ -66,7 +66,7 @@ export function VideoSettingsPanel({ config, onConfigChange, theme, showTitle = 
                             <div className="text-xs" style={{ color: theme.node.muted }}>任务类型</div>
                             <div className="grid grid-cols-4 gap-2">
                                 {(Object.keys(seedanceTaskTypeLabels) as Array<keyof typeof seedanceTaskTypeLabels>).map((taskType) => (
-                                    <OptionPill key={taskType} selected={config.seedance.taskType === taskType} theme={theme} onClick={() => { onConfigChange("seedanceTaskType", taskType); if (taskType === "extend" || taskType === "edit") onConfigChange("size", "auto"); if (taskType === "edit") onConfigChange("videoSeconds", "-1"); }}><span className="block truncate whitespace-nowrap">{seedanceTaskTypeLabels[taskType]}</span></OptionPill>
+                                    <OptionPill key={taskType} selected={config.seedance.taskType === taskType} theme={theme} onClick={() => { onConfigChange("seedanceTaskType", taskType); if (taskType === "extend" || taskType === "edit") onConfigChange("size", "auto"); if (taskType === "edit") onConfigChange("videoSeconds", "-1"); }}><span className="block whitespace-nowrap text-[11px] leading-none">{seedanceTaskTypeLabels[taskType]}</span></OptionPill>
                                 ))}
                             </div>
                         </div>
