@@ -239,18 +239,33 @@ function omniVideoOutput(interaction: OmniInteraction): OmniVideoOutput | undefi
     if (interaction.output_video?.data || interaction.output_video?.uri) return interaction.output_video;
     return interaction.steps?.filter((step) => step.type === "model_output").flatMap((step) => step.content || []).find((item) => item.type === "video");
 }
-function omniResult(output: NonNullable<ReturnType<typeof omniVideoOutput>>, config: AiConfig): VideoGenerationResult {
+async function omniResult(output: NonNullable<ReturnType<typeof omniVideoOutput>>, config: AiConfig, options?: RequestOptions): Promise<VideoGenerationResult> {
     if (output.data) {
         const raw = atob(output.data);
         const bytes = new Uint8Array(raw.length);
         for (let i = 0; i < raw.length; i++) bytes[i] = raw.charCodeAt(i);
         return { blob: new Blob([bytes], { type: output.mime_type || "video/mp4" }) };
     }
-    if (output.uri) {
-        const uri = output.uri.includes("key=") ? output.uri : `${output.uri}${output.uri.includes("?") ? "&" : "?"}key=${encodeURIComponent(config.apiKey)}`;
-        return { url: uri, mimeType: output.mime_type || "video/mp4" };
+    if (!output.uri) throw new Error(apiText("noPlayableVideo"));
+    const uri = new URL(output.uri);
+    const fileId = uri.pathname.match(/\/files\/([^/:?]+)/)?.[1];
+    if (uri.hostname !== "generativelanguage.googleapis.com" || !fileId) throw new Error("Omni 返回了无法识别的 Google Files URI。");
+    const base = geminiVideoBaseUrl(config);
+    const headers = geminiVideoHeaders(config);
+    for (let attempt = 0; attempt < 120; attempt++) {
+        if (options?.signal?.aborted) throw new DOMException("Aborted", "AbortError");
+        const file = (await axios.get<{ state?: string }>(withLocalProxy(`${base}/files/${fileId}`), { headers, signal: options?.signal })).data;
+        const state = String(file.state || "").toUpperCase();
+        if (state === "FAILED") throw new Error("Omni 文件处理失败（Google Files 状态 FAILED）。");
+        if (state === "ACTIVE") {
+            const response = await axios.get<Blob>(withLocalProxy(`${base}/files/${fileId}:download?alt=media`), { headers: { "x-goog-api-key": config.apiKey }, responseType: "blob", signal: options?.signal });
+            await assertVideoBlob(response.data);
+            if (!response.data.size || response.data.type.includes("json")) throw new Error("Omni 文件下载没有返回可播放的视频。");
+            return { blob: response.data.type ? response.data : new Blob([response.data], { type: output.mime_type || "video/mp4" }) };
+        }
+        await delay(5000, options?.signal);
     }
-    throw new Error(apiText("noPlayableVideo"));
+    throw new Error("Omni 文件处理超时，尚未达到 ACTIVE 状态；不会自动重新生成。");
 }
 async function createOmniVideoTask(config: AiConfig, model: string, prompt: string, references: ReferenceImage[], options?: VideoMediaOptions): Promise<VideoGenerationTask> {
     if (options?.audios?.length) throw new Error("Gemini Omni does not support uploaded audio references.");
@@ -287,14 +302,15 @@ async function createOmniVideoTask(config: AiConfig, model: string, prompt: stri
             // Official synchronous unary mode avoids a separate Interactions GET;
             // Google's retrieval endpoint has reports of rejecting otherwise valid keys.
             background: false,
-            store: false,
+            // URI video delivery requires storage even for a synchronous interaction.
+            store: true,
             stream: false,
         }, { headers: geminiVideoHeaders(config), signal: options?.signal })).data;
         if (interaction.error) throw new Error(interaction.error.message || "Omni generation failed");
         const output = omniVideoOutput(interaction);
         if (output) {
             const id = nanoid();
-            pluginVideoResults.set(id, omniResult(output, config));
+            pluginVideoResults.set(id, await omniResult(output, config, options));
             return { id, provider: "plugin", model };
         }
         // Synchronous Omni creation must return the video in this response.
@@ -308,7 +324,7 @@ async function pollOmniVideoTask(config: AiConfig, task: VideoGenerationTask, op
         if (interaction.error || interaction.status === "failed" || interaction.status === "cancelled" || interaction.status === "incomplete") return { status: "failed", error: interaction.error?.message || "Omni generation failed" };
         if (interaction.status !== "completed") return { status: "pending" };
         const output = omniVideoOutput(interaction);
-        return output ? { status: "completed", result: omniResult(output, config) } : { status: "failed", error: apiText("noPlayableVideo") };
+        return output ? { status: "completed", result: await omniResult(output, config, options) } : { status: "failed", error: apiText("noPlayableVideo") };
     } catch (error) {
         const detail = readAxiosError(error, apiText("videoTaskQueryFailed"));
         if (/API key not valid/i.test(detail)) {
