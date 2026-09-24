@@ -8,6 +8,7 @@ import { useTranslation } from "react-i18next";
 import { requestEdit, requestGeneration, requestImageQuestion } from "@/services/api/image";
 import { requestAudioGeneration, storeGeneratedAudio } from "@/services/api/audio";
 import { createVideoGenerationTask, isVideoTaskFailed, storeGeneratedVideo, waitForVideoGenerationTask } from "@/services/api/video";
+import { isMoyuSeedance } from "@/services/api/moyu-video";
 import { defaultConfig, useConfigStore, useEffectiveConfig, type AiConfig } from "@/stores/use-config-store";
 import { ensureImagePreview, uploadImage } from "@/services/image-storage";
 import { uploadMediaFile, type UploadedFile } from "@/services/file-storage";
@@ -313,7 +314,7 @@ function InfiniteCanvasPage() {
         async (nodeId: string, config: Parameters<typeof buildGenerationConfig>[0], prompt: string, images: Parameters<typeof createVideoGenerationTask>[2], signal: AbortSignal, extra: CanvasNodeData["metadata"] = {}, videos: ReferenceVideo[] = [], audios: ReferenceAudio[] = []) => {
             const task = await createVideoGenerationTask(config, prompt, images, { signal, videos, audios });
             if (task.provider !== "plugin") {
-                setNodes((prev) => prev.map((item) => (item.id === nodeId ? { ...item, metadata: { ...item.metadata, videoTaskId: task.id, videoTaskProvider: task.provider === "omni" ? "omni" : task.provider === "gemini" ? "gemini" : "openai", model: config.model } } : item)));
+                setNodes((prev) => prev.map((item) => (item.id === nodeId ? { ...item, metadata: { ...item.metadata, videoTaskId: task.id, videoTaskProvider: task.provider === "omni" ? "omni" : task.provider === "gemini" ? "gemini" : task.provider === "moyu" ? "moyu" : "openai", model: config.model } } : item)));
             }
             const result = await waitForVideoGenerationTask(config, task, { signal });
             const video = await storeGeneratedVideo(result);
@@ -341,7 +342,7 @@ function InfiniteCanvasPage() {
                 setRunningNodeId(node.id);
                 setNodes((prev) => prev.map((item) => (item.id === node.id ? { ...item, metadata: { ...item.metadata, status: NODE_STATUS_LOADING, errorDetails: undefined } } : item)));
                 controller = startGenerationRequest(node.id, node.id, node.id);
-                const video = await storeGeneratedVideo(await waitForVideoGenerationTask(generationConfig, { id: taskId, provider: node.metadata?.videoTaskProvider === "omni" ? "omni" : node.metadata?.videoTaskProvider === "gemini" ? "gemini" : "openai", model: generationConfig.model }, { signal: controller.signal }));
+                const video = await storeGeneratedVideo(await waitForVideoGenerationTask(generationConfig, { id: taskId, provider: node.metadata?.videoTaskProvider === "omni" ? "omni" : node.metadata?.videoTaskProvider === "gemini" ? "gemini" : node.metadata?.videoTaskProvider === "moyu" ? "moyu" : "openai", model: generationConfig.model }, { signal: controller.signal }));
                 setNodes((prev) =>
                     prev.map((item) =>
                         item.id === node.id
@@ -2773,6 +2774,24 @@ function InfiniteCanvasPage() {
             if (hasResumableVideoTask(node)) {
                 await pollVideoNodeTask(node);
                 return;
+            }
+            // A previously billed Moyu request may have succeeded upstream without
+            // its task ID being parsed. Recovery must NEVER submit another POST.
+            if (node.type === CanvasNodeType.Video && node.metadata?.status === NODE_STATUS_ERROR && !node.metadata.videoTaskId) {
+                const recoveryConfig = buildGenerationConfig(effectiveConfig, node, "video");
+                if (isMoyuSeedance({ ...recoveryConfig, model: recoveryConfig.model.split("::").pop() || recoveryConfig.model })) {
+                    const taskId = window.prompt("此魔芋节点可能已扣费生成。请输入原任务 ID（查询并回填），或已生成视频的 HTTPS 地址（直接导入）；不会重新生成。取消则保留错误节点：");
+                    if (!taskId?.trim()) return;
+                    if (/^https:\/\//i.test(taskId.trim())) {
+                        const video = await storeGeneratedVideo({ url: taskId.trim() });
+                        setNodes((prev) => prev.map((item) => item.id === node.id ? applyGeneratedVideo(item, video, { prompt: item.metadata?.prompt, model: recoveryConfig.model }) : item));
+                        return;
+                    }
+                    const recoveredNode = { ...node, metadata: { ...node.metadata, videoTaskId: taskId.trim(), videoTaskProvider: "moyu" as const } };
+                    setNodes((prev) => prev.map((item) => item.id === node.id ? recoveredNode : item));
+                    await pollVideoNodeTask(recoveredNode);
+                    return;
+                }
             }
             const sourceNode = findRetrySourceNode(node.id, nodesRef.current, connectionsRef.current) || node;
             const savedImageMetadata = node.type === CanvasNodeType.Image ? node.metadata : undefined;

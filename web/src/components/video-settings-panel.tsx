@@ -69,6 +69,8 @@ export function VideoSettingsPanel({ config, onConfigChange, theme, showTitle = 
         const smartEdit = isSeedance25 && config.seedance.taskType === "edit" && config.videoSeconds === "-1";
         if (!smartEdit && String(seconds) !== String(config.videoSeconds)) onConfigChange("videoSeconds", String(seconds));
         if (resolution !== requestedResolution) onConfigChange("vquality", resolution);
+        // MOV is 2.5-only. Clear a persisted 2.5 choice when switching to Seedance 2.0.
+        if (isSeedance20 && config.seedance.outputFormat !== "mp4") onConfigChange("seedanceOutputFormat", "mp4");
         const adaptive = isSeedance25 && ["extend", "edit"].includes(config.seedance.taskType);
         if (!isDraft && !adaptive && selectedRatio !== "auto" && (fixedDimensions || resolution !== requestedResolution)) {
             const nextSize = computeVideoSize(resolution, selectedRatio);

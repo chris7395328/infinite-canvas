@@ -306,6 +306,17 @@ async function generateSeedance(input) {
     }
 }
 
+async function handleSeedanceCosUpload(req, res) {
+    try {
+        const input = JSON.parse((await readBody(req)).toString("utf8"));
+        if (input.kind !== "video" && input.kind !== "image" && input.kind !== "audio") throw new Error("不支持的 COS 素材类型");
+        const url = await uploadToCos(required(input.dataUrl, "参考素材"), input.kind, input.seedance || {});
+        sendJson(res, 200, { url });
+    } catch (error) {
+        sendJson(res, 400, { error: error instanceof Error ? error.message : String(error) });
+    }
+}
+
 async function handleSeedanceVideo(req, res) {
     try {
         const input = JSON.parse((await readBody(req)).toString("utf8"));
@@ -337,6 +348,10 @@ export function createProxyServer() {
         if (req.method === "OPTIONS") {
             res.writeHead(204, CORS_HEADERS);
             res.end();
+            return;
+        }
+        if (req.method === "POST" && req.url === "/seedance/cos-upload") {
+            void handleSeedanceCosUpload(req, res);
             return;
         }
         if (req.method === "POST" && req.url === "/seedance/video") {

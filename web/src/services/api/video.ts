@@ -8,6 +8,7 @@ import { getMediaBlob, resolveMediaUrl, uploadMediaFile, type UploadedFile } fro
 import { imageToDataUrl } from "@/services/image-storage";
 import { boolConfig, buildApiUrl, isVolcengineSeedance25, modelOptionName, resolveModelRequestConfig, resolveModelScript, withLocalProxy, type AiConfig } from "@/stores/use-config-store";
 import { getVolcengineSeedanceScript, runModelPlugin } from "./model-plugin";
+import { createMoyuSeedanceTask, isMoyuSeedance, pollMoyuSeedanceTask } from "./moyu-video";
 import type { ReferenceImage } from "@/types/image";
 import type { ReferenceAudio, ReferenceVideo } from "@/types/media";
 
@@ -19,7 +20,7 @@ type VideoMediaOptions = RequestOptions & { videos?: ReferenceVideo[]; audios?: 
 const apiText = (key: string, options?: Record<string, unknown>) => i18n.t(`apiErrors.${key}`, options);
 
 export type VideoGenerationResult = { blob?: Blob; url?: string; mimeType?: string; draftTaskId?: string };
-export type VideoGenerationTask = { id: string; provider: "openai" | "gemini" | "omni" | "plugin"; model: string };
+export type VideoGenerationTask = { id: string; provider: "openai" | "gemini" | "omni" | "moyu" | "plugin"; model: string };
 type GeminiInlineData = { bytesBase64Encoded: string; mimeType: string };
 type GeminiVideoOperation = {
     name?: string;
@@ -48,7 +49,7 @@ export async function requestVideoGeneration(config: AiConfig, prompt: string, r
 }
 
 export async function waitForVideoGenerationTask(config: AiConfig, task: VideoGenerationTask, options?: RequestOptions): Promise<VideoGenerationResult> {
-    const maxAttempts = task.provider === "omni" ? 240 : 120;
+    const maxAttempts = task.provider === "moyu" ? 480 : task.provider === "omni" ? 240 : 120;
     for (let attempt = 0; attempt < maxAttempts; attempt += 1) {
         if (options?.signal?.aborted) throw new DOMException("Aborted", "AbortError");
         const state = await pollVideoGenerationTask(config, task, options);
@@ -80,6 +81,17 @@ export async function createVideoGenerationTask(config: AiConfig, prompt: string
         assertVideoConfig(requestConfig, requestConfig.model);
         return createOmniVideoTask(requestConfig, selectedModel, prompt, references, options);
     }
+    if (isMoyuSeedance(requestConfig)) {
+        assertVideoConfig(requestConfig, requestConfig.model);
+        const id = await createMoyuSeedanceTask(requestConfig, prompt, references, {
+            seconds: normalizeVideoSeconds(requestConfig.videoSeconds),
+            resolution: normalizeVideoResolution(requestConfig.vquality),
+            ratio: requestConfig.size === "auto" ? "adaptive" : videoAspectRatio(requestConfig.size),
+            mode: resolveVideoMode(requestConfig.videoMode, references.length),
+            generateAudio: boolConfig(requestConfig.videoGenerateAudio, true),
+        }, options);
+        return { id, provider: "moyu", model: selectedModel };
+    }
     const script = isVolcengineSeedance25(requestConfig) ? getVolcengineSeedanceScript() : resolveModelScript(config, selectedModel);
     if (script) return createPluginVideoTask(requestConfig, selectedModel, script, prompt, references, options);
     assertVideoConfig(requestConfig, requestConfig.model);
@@ -94,6 +106,11 @@ export async function pollVideoGenerationTask(config: AiConfig, task: VideoGener
     }
     const requestConfig = resolveModelRequestConfig(config, task.model);
     assertVideoConfig(requestConfig, requestConfig.model);
+    if (task.provider === "moyu") {
+        const state = await pollMoyuSeedanceTask(requestConfig, task.id, options?.signal);
+        if (state.status === "completed") return { status: "completed", result: await videoResultFromUrl(state.url, options) };
+        return state;
+    }
     if (task.provider === "omni") return pollOmniVideoTask(requestConfig, task, options);
     if (task.provider === "gemini") return pollGeminiVideoTask(requestConfig, task, options);
     return pollOpenAIVideoTask(requestConfig, task, options);
