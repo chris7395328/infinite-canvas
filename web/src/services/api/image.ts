@@ -898,21 +898,11 @@ export async function fetchImageModels(config: Pick<AiConfig, "baseUrl" | "apiKe
                 .filter((id): id is string => Boolean(id))
                 .sort((a, b) => a.localeCompare(b));
         }
-        const url = modelListUrl(config);
-        const headers = { Authorization: `Bearer ${config.apiKey}` };
-        type ModelListPayload = { data?: Array<{ id?: string }>; error?: { message?: string } };
-        let response;
-        try {
-            response = await axios.get<ModelListPayload>(url, { headers });
-        } catch (error) {
-            // A browser CORS preflight failure has no HTTP response. Reuse the
-            // already-running Seedance bridge as a generic HTTP forwarder.
-            // Never retry actual API errors or requests already using a proxy.
-            if (!axios.isAxiosError(error) || error.response || error.code !== "ERR_NETWORK") throw error;
-            const bridge = normalizeLocalProxyUrl(useConfigStore.getState().config.seedance.bridgeUrl);
-            if (!bridge || !/^https?:\/\//i.test(url) || url.startsWith(`${bridge}/`) || new URL(url).hostname === "127.0.0.1") throw error;
-            response = await axios.get<ModelListPayload>(`${bridge}/${url}`, { headers });
-        }
+        const response = await axios.get<{ data?: Array<{ id?: string }>; error?: { message?: string } }>(modelListUrl(config), {
+            headers: {
+                Authorization: `Bearer ${config.apiKey}`,
+            },
+        });
         return (response.data.data || [])
             .map((model) => model.id)
             .filter((id): id is string => Boolean(id))
