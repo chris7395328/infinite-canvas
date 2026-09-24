@@ -1,8 +1,10 @@
-﻿param([switch]$SeedanceBridge)
+﻿param(
+    [switch]$SeedanceBridge,
+    [switch]$RestartSeedanceBridge
+)
 
 $ErrorActionPreference = "Stop"
 
-$restartSeedanceBridge = $args -contains "-RestartSeedanceBridge"
 $projectRoot = $PSScriptRoot
 $webDirectory = Join-Path $projectRoot "web"
 $port = 3000
