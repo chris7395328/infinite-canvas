@@ -2,6 +2,7 @@
 
 $ErrorActionPreference = "Stop"
 
+$restartSeedanceBridge = $args -contains "-RestartSeedanceBridge"
 $projectRoot = $PSScriptRoot
 $webDirectory = Join-Path $projectRoot "web"
 $port = 3000
@@ -36,6 +37,7 @@ if ($isRunning) {
     if (-not $isRunning) { Write-Error "服务未能在 10 秒内启动。请查看日志：$stderrLog" }
 }
 
-if ($SeedanceBridge) {
-    & (Join-Path $projectRoot "start-seedance-bridge.ps1")
+if ($SeedanceBridge -or $restartSeedanceBridge) {
+    $bridgeArgs = if ($restartSeedanceBridge) { @("-Restart") } else { @() }
+    & (Join-Path $projectRoot "start-seedance-bridge.ps1") @bridgeArgs
 }
