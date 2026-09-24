@@ -1,6 +1,8 @@
-﻿$ErrorActionPreference = "Stop"
+﻿param([switch]$Restart)
 
-$restart = $args -contains "-Restart"
+$ErrorActionPreference = "Stop"
+
+$restart = $Restart
 $projectRoot = $PSScriptRoot
 $runtimeDirectory = Join-Path $projectRoot ".runtime"
 $bridgePort = 23210
