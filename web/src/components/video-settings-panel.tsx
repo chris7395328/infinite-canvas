@@ -1,4 +1,4 @@
-import { type ReactNode } from "react";
+import { useEffect, type ReactNode } from "react";
 import { Slider, Switch } from "antd";
 import { useTranslation } from "react-i18next";
 
@@ -41,14 +41,22 @@ type VideoSettingsPanelProps = {
 export function VideoSettingsPanel({ config, onConfigChange, theme, showTitle = true, className = "w-[320px] space-y-4 rounded-2xl px-1 py-0.5" }: VideoSettingsPanelProps) {
     const { t } = useTranslation();
     const isSeedance25 = isVolcengineSeedance25(config);
-    const isOmni = /^gemini-omni-/i.test(modelOptionName(config.model).replace(/^models\//, ""));
+    const modelName = modelOptionName(config.model).replace(/^models\//, "").toLowerCase();
+    const isSeedance20 = /doubao-seedance-2-0/.test(modelName);
+    const isSeedance20Fast = isSeedance20 && /fast|mini/.test(modelName);
+    const isOmni = /^gemini-omni-/.test(modelName);
     const isDraft = isSeedance25 && config.seedance.draft;
-    const seconds = isOmni ? Math.max(3, Math.min(10, Number(config.videoSeconds) || 6)) : Number(clampVideoSeconds(config.videoSeconds || "6"));
+    const minSeconds = isOmni ? 3 : VIDEO_SECONDS_MIN;
+    const maxSeconds = isOmni ? 10 : isSeedance20 ? 15 : VIDEO_SECONDS_MAX;
+    const seconds = Math.max(minSeconds, Math.min(maxSeconds, Number(config.videoSeconds) || 6));
     const videoMode = normalizeVideoModeValue(config.videoMode);
-    const resolution = isDraft ? "480" : parseVideoResolution(config.vquality);
     const omniResolutionOptions = [{ value: "360", label: "360p" }, { value: "720", label: "720p" }, { value: "1080", label: "1080p" }, { value: "2160", label: "4K" }];
+    const allowedResolutions = isOmni ? omniResolutionOptions : isSeedance20Fast ? resolutionOptions.filter((item) => item.value !== "1080") : resolutionOptions;
+    const requestedResolution = parseVideoResolution(config.vquality);
+    const resolution = isDraft ? "480" : allowedResolutions.some((item) => item.value === requestedResolution) ? requestedResolution : "720";
     const selectedRatio = inferVideoRatio(config.size || "auto");
-    const dimensions = readVideoDimensions(config.size || "auto", resolution, selectedRatio);
+    const fixedDimensions = isOmni || isSeedance20 || isSeedance25;
+    const dimensions = readVideoDimensions(fixedDimensions ? computeVideoSize(resolution, selectedRatio === "auto" ? "16:9" : selectedRatio) : config.size || "auto", resolution, selectedRatio);
     const applySize = (nextResolution: string, ratio: string) => {
         onConfigChange("vquality", nextResolution);
         onConfigChange("size", computeVideoSize(nextResolution, ratio));
@@ -57,6 +65,16 @@ export function VideoSettingsPanel({ config, onConfigChange, theme, showTitle = 
         if (selectedRatio === "auto") onConfigChange("vquality", nextResolution);
         else applySize(nextResolution, selectedRatio);
     };
+    useEffect(() => {
+        const smartEdit = isSeedance25 && config.seedance.taskType === "edit" && config.videoSeconds === "-1";
+        if (!smartEdit && String(seconds) !== String(config.videoSeconds)) onConfigChange("videoSeconds", String(seconds));
+        if (resolution !== requestedResolution) onConfigChange("vquality", resolution);
+        const adaptive = isSeedance25 && ["extend", "edit"].includes(config.seedance.taskType);
+        if (!isDraft && !adaptive && selectedRatio !== "auto" && (fixedDimensions || resolution !== requestedResolution)) {
+            const nextSize = computeVideoSize(resolution, selectedRatio);
+            if (config.size !== nextSize) onConfigChange("size", nextSize);
+        }
+    }, [config.model, config.size, config.videoSeconds, config.vquality, config.seedance.taskType, seconds, isDraft, isSeedance25, fixedDimensions, resolution, requestedResolution, selectedRatio, onConfigChange]);
 
     return (
         <ImageSettingsTheme theme={theme}>
@@ -99,13 +117,13 @@ export function VideoSettingsPanel({ config, onConfigChange, theme, showTitle = 
                     </SettingGroup>
                 ) : null}
                 <SettingGroup title={t("settingsPanels.video.quality")} color={theme.node.muted}>
-                    {isDraft ? <div className="flex h-9 items-center justify-center rounded-full border text-sm" style={{ borderColor: theme.node.stroke }}>480p（草稿模式锁定）</div> : <div className={isOmni ? "grid grid-cols-4 gap-1.5" : "grid grid-cols-4 gap-2.5"}>{(isOmni ? omniResolutionOptions : resolutionOptions).map((item) => (<OptionPill key={item.value} selected={resolution === item.value} theme={theme} onClick={() => selectResolution(item.value)}>{item.label}</OptionPill>))}{!isOmni ? <ResolutionInput value={resolution} theme={theme} onChange={selectResolution} /> : null}</div>}
+                    {isDraft ? <div className="flex h-9 items-center justify-center rounded-full border text-sm" style={{ borderColor: theme.node.stroke }}>480p（草稿模式锁定）</div> : <div className="grid grid-cols-4 gap-2.5">{allowedResolutions.map((item) => (<OptionPill key={item.value} selected={resolution === item.value} theme={theme} onClick={() => selectResolution(item.value)}>{item.label}</OptionPill>))}</div>}
                 </SettingGroup>
                 <SettingGroup title={t("settingsPanels.video.size")} color={theme.node.muted}>
                     <div className="grid grid-cols-[1fr_auto_1fr] items-center gap-2.5">
-                        <DimensionInput prefix="W" value={dimensions.width} disabled={isOmni || selectedRatio === "auto"} theme={theme} onChange={(value) => updateDimension("width", value, dimensions, onConfigChange)} />
+                        <DimensionInput prefix="W" value={dimensions.width} disabled={fixedDimensions || selectedRatio === "auto"} theme={theme} onChange={(value) => updateDimension("width", value, dimensions, onConfigChange)} />
                         <span className="text-lg opacity-45">↔</span>
-                        <DimensionInput prefix="H" value={dimensions.height} disabled={isOmni || selectedRatio === "auto"} theme={theme} onChange={(value) => updateDimension("height", value, dimensions, onConfigChange)} />
+                        <DimensionInput prefix="H" value={dimensions.height} disabled={fixedDimensions || selectedRatio === "auto"} theme={theme} onChange={(value) => updateDimension("height", value, dimensions, onConfigChange)} />
                     </div>
                 </SettingGroup>
                 <SettingGroup title={t("settingsPanels.video.ratio")} color={theme.node.muted}>
@@ -127,8 +145,8 @@ export function VideoSettingsPanel({ config, onConfigChange, theme, showTitle = 
                 </SettingGroup>
                 <SettingGroup title={t("settingsPanels.video.seconds")} color={theme.node.muted}>
                     <div className="flex items-center gap-3" onMouseDown={(event) => event.stopPropagation()}>
-                        <Slider className="min-w-0 flex-1" min={isOmni ? 3 : VIDEO_SECONDS_MIN} max={isOmni ? 10 : VIDEO_SECONDS_MAX} step={1} value={seconds} onChange={(value) => onConfigChange("videoSeconds", String(Array.isArray(value) ? value[0] : value))} />
-                        <SecondsInput value={seconds} theme={theme} min={isOmni ? 3 : VIDEO_SECONDS_MIN} max={isOmni ? 10 : VIDEO_SECONDS_MAX} onCommit={(value) => onConfigChange("videoSeconds", String(value))} />
+                        <Slider className="min-w-0 flex-1" min={minSeconds} max={maxSeconds} step={1} value={seconds} onChange={(value) => onConfigChange("videoSeconds", String(Array.isArray(value) ? value[0] : value))} />
+                        <SecondsInput value={seconds} theme={theme} min={minSeconds} max={maxSeconds} onCommit={(value) => onConfigChange("videoSeconds", String(value))} />
                         <span className="shrink-0 text-sm" style={{ color: theme.node.muted }}>s</span>
                     </div>
                 </SettingGroup>
@@ -201,17 +219,6 @@ function SettingGroup({ title, color, children }: { title: string; color: string
             </div>
             {children}
         </div>
-    );
-}
-
-function ResolutionInput({ value, theme, onChange }: { value: string; theme: CanvasTheme; onChange: (value: string) => void }) {
-    return (
-        <label className="flex h-9 overflow-hidden rounded-full border text-sm" style={{ borderColor: theme.node.stroke, color: theme.node.text }}>
-            <input type="number" min={1} className="min-w-0 flex-1 bg-transparent px-3 text-center outline-none [appearance:textfield] [&::-webkit-inner-spin-button]:appearance-none [&::-webkit-outer-spin-button]:appearance-none" value={value} onChange={(event) => onChange(event.target.value)} onMouseDown={(event) => event.stopPropagation()} />
-            <span className="grid w-7 place-items-center pr-1" style={{ color: theme.node.muted }}>
-                p
-            </span>
-        </label>
     );
 }
 

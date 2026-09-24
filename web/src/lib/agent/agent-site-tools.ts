@@ -6,7 +6,6 @@ import { uploadImage } from "@/services/image-storage";
 import { imageAspectOptions, imageQualityOptions, imageScaleOptions } from "@/components/image-settings-panel";
 import { videoResolutionOptions, videoSecondsRange, videoSizeOptions } from "@/components/video-settings-panel";
 import type { CanvasAgentSnapshot } from "@/lib/canvas/canvas-agent-ops";
-import { clampVideoSeconds } from "@/lib/media-size";
 import { useCanvasStore } from "@/stores/canvas/use-canvas-store";
 import { useAssetStore } from "@/stores/use-asset-store";
 import { modelOptionLabel, modelOptionName, normalizeModelOptionValue, selectableModelsByCapability, useConfigStore } from "@/stores/use-config-store";
@@ -190,6 +189,12 @@ function runImageWorkbench(input: SiteToolInput, navigate: NavigateFunction) {
 function getVideoConfig() {
     const { config } = useConfigStore.getState();
     const model = config.videoModel || config.model;
+    const name = modelOptionName(model).toLowerCase();
+    const omni = /^gemini-omni-/.test(name);
+    const seedance20 = /doubao-seedance-2-0/.test(name);
+    const fast20 = seedance20 && /fast|mini/.test(name);
+    const secondsRange = omni ? { min: 3, max: 10 } : seedance20 ? { min: 4, max: 15 } : videoSecondsRange;
+    const resolutions = omni ? [{ value: "360", label: "360p" }, { value: "720", label: "720p" }, { value: "1080", label: "1080p" }, { value: "2160", label: "4K" }] : fast20 ? videoResolutionOptions.filter((item) => item.value !== "1080") : videoResolutionOptions;
     return {
         current: {
             model,
@@ -203,8 +208,8 @@ function getVideoConfig() {
         },
         models: selectableModelsByCapability(config, "video").map((value) => ({ value, label: modelOptionLabel(config, value) })),
         sizeOptions: videoSizeOptions,
-        secondsRange: videoSecondsRange,
-        resolutionOptions: videoResolutionOptions,
+        secondsRange,
+        resolutionOptions: resolutions,
         modeOptions: [
             { value: "frames", label: i18n.t("settingsPanels.video.modes.frames") },
             { value: "reference", label: i18n.t("settingsPanels.video.modes.reference") },
@@ -220,18 +225,26 @@ function runVideoWorkbench(input: SiteToolInput, navigate: NavigateFunction) {
         configStore.updateConfig("videoModel", value);
         applied.model = value;
     }
+    const activeName = modelOptionName(String(applied.model || configStore.config.videoModel || configStore.config.model)).toLowerCase();
+    const activeOmni = /^gemini-omni-/.test(activeName);
+    const active20 = /doubao-seedance-2-0/.test(activeName);
+    const activeFast = active20 && /fast|mini/.test(activeName);
+    const allowedResolutionValues = activeOmni ? ["360", "720", "1080", "2160"] : activeFast ? ["480", "720"] : ["480", "720", "1080"];
     if (typeof input.size === "string" && input.size.trim()) {
         configStore.updateConfig("size", input.size);
         applied.size = input.size;
     }
-    if (input.seconds != null && String(input.seconds).trim()) {
-        const seconds = clampVideoSeconds(String(input.seconds));
+    if ((input.seconds != null && String(input.seconds).trim()) || applied.model) {
+        const requested = Math.floor(Number(input.seconds ?? configStore.config.videoSeconds) || 6);
+        const seconds = String(Math.max(activeOmni ? 3 : 4, Math.min(activeOmni ? 10 : active20 ? 15 : 30, requested)));
         configStore.updateConfig("videoSeconds", seconds);
         applied.seconds = seconds;
     }
-    if (typeof input.resolution === "string" && input.resolution.trim()) {
-        configStore.updateConfig("vquality", input.resolution);
-        applied.resolution = input.resolution;
+    if ((typeof input.resolution === "string" && input.resolution.trim()) || applied.model) {
+        const requested = String(input.resolution || configStore.config.vquality || "720").replace(/p$/i, "").toLowerCase();
+        const resolution = allowedResolutionValues.includes(requested) ? requested : "720";
+        configStore.updateConfig("vquality", resolution);
+        applied.resolution = resolution;
     }
     if (typeof input.generateAudio === "boolean") {
         configStore.updateConfig("videoGenerateAudio", String(input.generateAudio));

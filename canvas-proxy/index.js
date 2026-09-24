@@ -238,13 +238,24 @@ async function generateSeedance(input) {
     const apiKey = required(input.apiKey, "方舟 API Key");
     const params = input.params || {};
     const draftTaskId = String(input.draftTaskId || "").trim();
+    const isV25 = /seedance-2-5/i.test(model);
+    const isV20 = /seedance-2-0/i.test(model);
+    const isV20Fast = isV20 && /fast|mini/i.test(model);
+    const allowedResolutions = isV20Fast ? ["480p", "720p"] : ["480p", "720p", "1080p"];
+    const requestedResolution = String(params.resolution || "720p").toLowerCase();
+    if ((isV20 || isV25) && !draftTaskId && !(isV25 && settings.draft) && !allowedResolutions.includes(requestedResolution)) {
+        throw new Error("该 Seedance 模型不支持生成分辨率 " + requestedResolution + "，请选择 " + allowedResolutions.join("、") + "；4K 导出并非该 API 的 4K 生成。");
+    }
+    const requestedDuration = Number(params.seconds) || 8;
+    if (isV20 && (requestedDuration < 4 || requestedDuration > 15)) throw new Error("Seedance 2.0 支持的生成时长为 4～15 秒，请调整节点时长。");
+    if (isV25 && !draftTaskId && settings.taskType !== "edit" && (requestedDuration < 4 || requestedDuration > 30)) throw new Error("Seedance 2.5 支持的生成时长为 4～30 秒，请调整节点时长。");
+    const duration = Math.max(4, Math.min(isV25 ? 30 : 15, requestedDuration));
     const rawReferences = [
         ...(input.images || []).map((url) => ({ url, kind: "image" })),
         ...(input.videos || []).map((url) => ({ url, kind: "video" })),
         ...(input.audios || []).map((url) => ({ url, kind: "audio" })),
     ];
     const references = draftTaskId ? [] : await Promise.all(rawReferences.map(async (item) => ({ ...item, url: settings.usePrivateAssets ? await preparePrivateAsset(item.url, item.kind, settings) : item.url })));
-    const isV25 = /seedance-2-5/i.test(model);
     const isEdit = isV25 && settings.taskType === "edit";
     const isAdaptiveTask = isV25 && ["extend", "edit"].includes(settings.taskType);
     const body = draftTaskId
@@ -254,9 +265,9 @@ async function generateSeedance(input) {
         : {
               model,
               content: seedanceContent(input.prompt, references, params.mode),
-              resolution: params.resolution || "720p",
+              resolution: isV25 && settings.draft ? "480p" : requestedResolution,
               ratio: isAdaptiveTask ? "adaptive" : params.ratio || "16:9",
-              duration: isEdit ? -1 : Number(params.seconds) || 8,
+              duration: isEdit ? -1 : duration,
               generate_audio: params.generateAudio !== false,
               watermark: params.watermark === true,
               ...(isV25 ? {

@@ -2,6 +2,9 @@
 
 ## Unreleased
 
++ [调整] 视频清晰度仅允许固定档位选择，禁用 API 模型的自定义宽高输入；Seedance 2.0 时长限制 4～15 秒，2.5 为 4～30 秒，Omni 为 3～10 秒，模型切换时同步纠正历史配置。
++ [校验] 方舟 Seedance bridge 在提交前验证各版本清晰度与时长：2.0 fast/mini 为 480p/720p，2.5 API 生成为 480p/720p/1080p（4K 导出不等于 4K 生成）。Agent 视频设置同步约束档位。
+
 + [修复] Gemini Omni URI 视频交付要求 `store=true`，同步请求改用合法参数组合；按官方 Files API 等待 ACTIVE 状态，再使用认证下载接口获取视频。
 
 + [修复] Omni 同步 POST 未返回视频时不再以 interaction ID 回退到 GET /interactions；明确报告同步响应状态与任务 ID，避免误报 Key 无效或重复生成。
