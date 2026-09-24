@@ -297,8 +297,9 @@ async function createOmniVideoTask(config: AiConfig, model: string, prompt: stri
             pluginVideoResults.set(id, omniResult(output, config));
             return { id, provider: "plugin", model };
         }
-        if (!interaction.id) throw new Error(apiText("noVideoTaskId"));
-        return { id: interaction.id, provider: "omni", model };
+        // Synchronous Omni creation must return the video in this response.
+        // An interaction ID alone does not justify switching to the broken GET endpoint.
+        throw new Error(`Omni 同步请求未返回视频：status=${interaction.status || "unknown"}，interactionId=${interaction.id || "none"}。已停止，未再次提交生成任务；请检查原始 POST 响应。`);
     } catch (error) { throw new Error(readAxiosError(error, apiText("videoTaskCreateFailed"))); }
 }
 async function pollOmniVideoTask(config: AiConfig, task: VideoGenerationTask, options?: RequestOptions): Promise<VideoGenerationTaskState> {

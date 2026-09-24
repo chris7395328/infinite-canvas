@@ -2,6 +2,8 @@
 
 ## Unreleased
 
++ [修复] Omni 同步 POST 未返回视频时不再以 interaction ID 回退到 GET /interactions；明确报告同步响应状态与任务 ID，避免误报 Key 无效或重复生成。
+
 + [修复] Omni 按 Google 官方同步 unary 模式请求（background/store/stream 均为 false），优先读取官方 output_video，尝试绕开近期 Interactions GET 认证回归；轮询认证失败时显示准确错误阶段，不误判为用户 Key 无效。
 
 + [修复] 画布创建视频任务时保留真实 Omni provider，恢复轮询时也按 Omni 协议处理，不再把非 Gemini 的视频任务一律记为 OpenAI；扩展节点 metadata 类型。
