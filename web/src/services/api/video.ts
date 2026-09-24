@@ -76,7 +76,7 @@ export async function createVideoGenerationTask(config: AiConfig, prompt: string
     // The bundled 2.5 script persists Ark's draft_task_id. Prefer it over a
     // saved legacy script so draft nodes can always offer formal generation.
     // Omni must use Interactions even when a legacy Veo template was saved on the model.
-    if (requestConfig.apiFormat === "gemini" && isOmniModel(selectedModel)) {
+    if (isOmniModel(selectedModel)) {
         assertVideoConfig(requestConfig, requestConfig.model);
         return createOmniVideoTask(requestConfig, selectedModel, prompt, references, options);
     }
@@ -224,7 +224,13 @@ type OmniContent = { type: "text"; text: string } | { type: "image" | "video"; d
 type OmniInteraction = { id?: string; status?: string; error?: { message?: string }; steps?: Array<{ type?: string; content?: Array<{ type?: string; data?: string; uri?: string; mime_type?: string }> }> };
 function isOmniModel(model: string) { return /^gemini-omni-/i.test(modelOptionName(model).replace(/^models\//, "")); }
 function omniVideoUrl(config: AiConfig, id = "") {
+    // Omni requires the Google Gemini API, not an OpenAI-compatible channel URL.
+    // Never forward the user's official Google key to a differently configured host.
     const base = geminiVideoBaseUrl(config);
+    const host = new URL(base).hostname.toLowerCase();
+    if (host !== "generativelanguage.googleapis.com") {
+        throw new Error("Omni 模型必须绑定 Google 官方 Gemini 渠道。请将此模型所在渠道的 API 地址设置为 https://generativelanguage.googleapis.com，协议设置为 Gemini，并填写官方 Gemini API Key。");
+    }
     return withLocalProxy(`${base}/interactions${id ? "/" + encodeURIComponent(id) : ""}`);
 }
 function omniVideoOutput(interaction: OmniInteraction) {

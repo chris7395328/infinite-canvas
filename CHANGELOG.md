@@ -2,6 +2,8 @@
 
 ## Unreleased
 
++ [修复] Omni 模型无论渠道误存为 OpenAI 格式，均优先走 Gemini Interactions；非 Google 官方地址明确提示修正渠道，不再错误发送至 OpenAI 视频接口。
+
 + [Fix] Route Gemini Omni 1.1 Flash through the official Interactions API, even when a legacy Veo script is saved.
 + [UI] Limit Omni settings to 3-10 seconds, 16:9/9:16, and 360p/720p/1080p/4K, with URI and base64 video results.
 
