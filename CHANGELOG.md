@@ -2,6 +2,8 @@
 
 ## Unreleased
 
++ [修复] 画布创建视频任务时保留真实 Omni provider，恢复轮询时也按 Omni 协议处理，不再把非 Gemini 的视频任务一律记为 OpenAI；扩展节点 metadata 类型。
+
 + [修复] 恢复 Gemini Omni 的首尾帧 / 全参考模式切换；按 Google 官方媒体标签分别设置首帧、尾帧及多图/多视频参考，避免两种模式请求完全相同。
 
 + [修复] Omni 模型无论渠道误存为 OpenAI 格式，均优先走 Gemini Interactions；非 Google 官方地址明确提示修正渠道，不再错误发送至 OpenAI 视频接口。
