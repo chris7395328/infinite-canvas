@@ -2,6 +2,9 @@
 
 ## Unreleased
 
++ [Fix] Route Gemini Omni 1.1 Flash through the official Interactions API, even when a legacy Veo script is saved.
++ [UI] Limit Omni settings to 3-10 seconds, 16:9/9:16, and 360p/720p/1080p/4K, with URI and base64 video results.
+
 + [新增] 新增火山方舟官方 Seedance 2.0 / 2.5 视频渠道、本地 bridge、腾讯 COS 上传与私域素材库配置。
 + [调整] 渠道协议新增火山方舟，可用 API Key 直接拉取账户模型；Seedance 2.5 视频节点新增编辑、草稿和草稿转正式生成。
 + [修复] 已保存的旧火山方舟渠道和旧 Seedance 2.5 调用脚本会自动兼容最新草稿任务返回，草稿视频成功后可显示正式生成操作。

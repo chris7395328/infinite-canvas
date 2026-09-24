@@ -19,7 +19,7 @@ type VideoMediaOptions = RequestOptions & { videos?: ReferenceVideo[]; audios?: 
 const apiText = (key: string, options?: Record<string, unknown>) => i18n.t(`apiErrors.${key}`, options);
 
 export type VideoGenerationResult = { blob?: Blob; url?: string; mimeType?: string; draftTaskId?: string };
-export type VideoGenerationTask = { id: string; provider: "openai" | "gemini" | "plugin"; model: string };
+export type VideoGenerationTask = { id: string; provider: "openai" | "gemini" | "omni" | "plugin"; model: string };
 type GeminiInlineData = { bytesBase64Encoded: string; mimeType: string };
 type GeminiVideoOperation = {
     name?: string;
@@ -48,12 +48,13 @@ export async function requestVideoGeneration(config: AiConfig, prompt: string, r
 }
 
 export async function waitForVideoGenerationTask(config: AiConfig, task: VideoGenerationTask, options?: RequestOptions): Promise<VideoGenerationResult> {
-    for (let attempt = 0; attempt < 120; attempt += 1) {
+    const maxAttempts = task.provider === "omni" ? 240 : 120;
+    for (let attempt = 0; attempt < maxAttempts; attempt += 1) {
         if (options?.signal?.aborted) throw new DOMException("Aborted", "AbortError");
         const state = await pollVideoGenerationTask(config, task, options);
         if (state.status === "completed") return state.result;
         if (state.status === "failed") throw videoTaskFailed(state.error);
-        if (attempt === 119) throw new Error(apiText("videoTimeout", { provider: "" }));
+        if (attempt === maxAttempts - 1) throw new Error(apiText("videoTimeout", { provider: "" }));
         await delay(2500, options?.signal);
     }
     throw new Error(apiText("videoTimeout", { provider: "" }));
@@ -74,6 +75,11 @@ export async function createVideoGenerationTask(config: AiConfig, prompt: string
     const requestConfig = resolveModelRequestConfig(config, selectedModel);
     // The bundled 2.5 script persists Ark's draft_task_id. Prefer it over a
     // saved legacy script so draft nodes can always offer formal generation.
+    // Omni must use Interactions even when a legacy Veo template was saved on the model.
+    if (requestConfig.apiFormat === "gemini" && isOmniModel(selectedModel)) {
+        assertVideoConfig(requestConfig, requestConfig.model);
+        return createOmniVideoTask(requestConfig, selectedModel, prompt, references, options);
+    }
     const script = isVolcengineSeedance25(requestConfig) ? getVolcengineSeedanceScript() : resolveModelScript(config, selectedModel);
     if (script) return createPluginVideoTask(requestConfig, selectedModel, script, prompt, references, options);
     assertVideoConfig(requestConfig, requestConfig.model);
@@ -88,6 +94,7 @@ export async function pollVideoGenerationTask(config: AiConfig, task: VideoGener
     }
     const requestConfig = resolveModelRequestConfig(config, task.model);
     assertVideoConfig(requestConfig, requestConfig.model);
+    if (task.provider === "omni") return pollOmniVideoTask(requestConfig, task, options);
     if (task.provider === "gemini") return pollGeminiVideoTask(requestConfig, task, options);
     return pollOpenAIVideoTask(requestConfig, task, options);
 }
@@ -213,6 +220,75 @@ async function videoResultFromUrl(url: string, options?: RequestOptions): Promis
     }
 }
 
+type OmniContent = { type: "text"; text: string } | { type: "image" | "video"; data: string; mime_type: string };
+type OmniInteraction = { id?: string; status?: string; error?: { message?: string }; steps?: Array<{ type?: string; content?: Array<{ type?: string; data?: string; uri?: string; mime_type?: string }> }> };
+function isOmniModel(model: string) { return /^gemini-omni-/i.test(modelOptionName(model).replace(/^models\//, "")); }
+function omniVideoUrl(config: AiConfig, id = "") {
+    const base = geminiVideoBaseUrl(config);
+    return withLocalProxy(`${base}/interactions${id ? "/" + encodeURIComponent(id) : ""}`);
+}
+function omniVideoOutput(interaction: OmniInteraction) {
+    return interaction.steps?.filter((step) => step.type === "model_output").flatMap((step) => step.content || []).find((item) => item.type === "video");
+}
+function omniResult(output: NonNullable<ReturnType<typeof omniVideoOutput>>, config: AiConfig): VideoGenerationResult {
+    if (output.data) {
+        const raw = atob(output.data);
+        const bytes = new Uint8Array(raw.length);
+        for (let i = 0; i < raw.length; i++) bytes[i] = raw.charCodeAt(i);
+        return { blob: new Blob([bytes], { type: output.mime_type || "video/mp4" }) };
+    }
+    if (output.uri) {
+        const uri = output.uri.includes("key=") ? output.uri : `${output.uri}${output.uri.includes("?") ? "&" : "?"}key=${encodeURIComponent(config.apiKey)}`;
+        return { url: uri, mimeType: output.mime_type || "video/mp4" };
+    }
+    throw new Error(apiText("noPlayableVideo"));
+}
+async function createOmniVideoTask(config: AiConfig, model: string, prompt: string, references: ReferenceImage[], options?: VideoMediaOptions): Promise<VideoGenerationTask> {
+    if (options?.audios?.length) throw new Error("Gemini Omni does not support uploaded audio references.");
+    if ((options?.videos?.length || 0) > 1) throw new Error("Gemini Omni supports only one source video.");
+    const images = await Promise.all(references.map((image) => imageToDataUrl(image)));
+    const input: OmniContent[] = images.map((dataUrl) => {
+        const image = parseDataUrlInline(dataUrl);
+        return { type: "image" as const, data: image.bytesBase64Encoded, mime_type: image.mimeType };
+    });
+    if (options?.videos?.[0]) {
+        const file = await referenceMediaToFile(options.videos[0], "ref.mp4", "invalidReferenceVideo", options);
+        const video = await fileToGeminiInline(file);
+        input.push({ type: "video", data: video.bytesBase64Encoded, mime_type: video.mimeType });
+    }
+    input.push({ type: "text", text: prompt });
+    const resolution = normalizeVideoResolution(config.vquality).toLowerCase();
+    const seconds = Math.max(3, Math.min(10, Number(config.videoSeconds) || 6));
+    const ratio = videoAspectRatio(config.size);
+    try {
+        const interaction = (await axios.post<OmniInteraction>(omniVideoUrl(config), {
+            model: modelOptionName(model).replace(/^models\//, ""),
+            input,
+            response_format: { type: "video", aspect_ratio: ratio === "9:16" ? ratio : "16:9",
+                resolution: resolution === "360p" || resolution === "1080p" ? resolution : resolution === "4kp" || resolution === "2160p" ? "4k" : "720p",
+                duration: `${seconds}s`, delivery: "uri" },
+            background: true,
+        }, { headers: geminiVideoHeaders(config), signal: options?.signal })).data;
+        if (interaction.error) throw new Error(interaction.error.message || "Omni generation failed");
+        if (!interaction.id) throw new Error(apiText("noVideoTaskId"));
+        const output = omniVideoOutput(interaction);
+        if (interaction.status === "completed" && output) {
+            const id = nanoid();
+            pluginVideoResults.set(id, omniResult(output, config));
+            return { id, provider: "plugin", model };
+        }
+        return { id: interaction.id, provider: "omni", model };
+    } catch (error) { throw new Error(readAxiosError(error, apiText("videoTaskCreateFailed"))); }
+}
+async function pollOmniVideoTask(config: AiConfig, task: VideoGenerationTask, options?: RequestOptions): Promise<VideoGenerationTaskState> {
+    try {
+        const interaction = (await axios.get<OmniInteraction>(omniVideoUrl(config, task.id), { headers: geminiVideoHeaders(config), signal: options?.signal })).data;
+        if (interaction.error || interaction.status === "failed" || interaction.status === "cancelled" || interaction.status === "incomplete") return { status: "failed", error: interaction.error?.message || "Omni generation failed" };
+        if (interaction.status !== "completed") return { status: "pending" };
+        const output = omniVideoOutput(interaction);
+        return output ? { status: "completed", result: omniResult(output, config) } : { status: "failed", error: apiText("noPlayableVideo") };
+    } catch (error) { throw new Error(readAxiosError(error, apiText("videoTaskQueryFailed"))); }
+}
 async function createGeminiVideoTask(config: AiConfig, model: string, prompt: string, references: ReferenceImage[], options?: VideoMediaOptions): Promise<VideoGenerationTask> {
     const images = await Promise.all(references.map((image) => imageToDataUrl(image)));
     const videos = await Promise.all((options?.videos || []).map((video) => referenceMediaToFile(video, "ref.mp4", "invalidReferenceVideo", options)));
