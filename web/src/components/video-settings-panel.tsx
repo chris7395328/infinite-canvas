@@ -132,7 +132,7 @@ export function VideoSettingsPanel({ config, onConfigChange, theme, showTitle = 
                         <span className="shrink-0 text-sm" style={{ color: theme.node.muted }}>s</span>
                     </div>
                 </SettingGroup>
-                {!isOmni ? <SettingGroup title={t("settingsPanels.video.mode")} color={theme.node.muted}>
+                <SettingGroup title={t("settingsPanels.video.mode")} color={theme.node.muted}>
                     <div className="grid grid-cols-2 gap-2.5">
                         {videoModeOptions.map((item) => (
                             <OptionPill key={item.value} selected={videoMode === item.value} theme={theme} onClick={() => onConfigChange("videoMode", item.value)}>
@@ -140,7 +140,8 @@ export function VideoSettingsPanel({ config, onConfigChange, theme, showTitle = 
                             </OptionPill>
                         ))}
                     </div>
-                </SettingGroup> : <div className="text-xs" style={{ color: theme.node.muted }}>Omni: 3–10s · 16:9 / 9:16 · 1080p/4K 为放大输出。时长是请求目标，实际片长以返回视频为准。</div>}
+                </SettingGroup>
+                {isOmni ? <div className="text-xs" style={{ color: theme.node.muted }}>首尾帧：前两张图依次作为首帧、尾帧；全参考：所有图片按顺序作为素材参考。Omni 支持 3–10s · 16:9 / 9:16，1080p/4K 为放大输出。</div> : null}
             </div>
         </ImageSettingsTheme>
     );

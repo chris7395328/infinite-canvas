@@ -251,18 +251,26 @@ function omniResult(output: NonNullable<ReturnType<typeof omniVideoOutput>>, con
 }
 async function createOmniVideoTask(config: AiConfig, model: string, prompt: string, references: ReferenceImage[], options?: VideoMediaOptions): Promise<VideoGenerationTask> {
     if (options?.audios?.length) throw new Error("Gemini Omni does not support uploaded audio references.");
-    if ((options?.videos?.length || 0) > 1) throw new Error("Gemini Omni supports only one source video.");
     const images = await Promise.all(references.map((image) => imageToDataUrl(image)));
     const input: OmniContent[] = images.map((dataUrl) => {
         const image = parseDataUrlInline(dataUrl);
         return { type: "image" as const, data: image.bytesBase64Encoded, mime_type: image.mimeType };
     });
-    if (options?.videos?.[0]) {
-        const file = await referenceMediaToFile(options.videos[0], "ref.mp4", "invalidReferenceVideo", options);
+    for (const reference of options?.videos || []) {
+        const file = await referenceMediaToFile(reference, "ref.mp4", "invalidReferenceVideo", options);
         const video = await fileToGeminiInline(file);
         input.push({ type: "video", data: video.bytesBase64Encoded, mime_type: video.mimeType });
     }
-    input.push({ type: "text", text: prompt });
+    // Omni distinguishes source roles through official prompt tags. The image
+    // order in input must match the zero-based reference tags in this text.
+    const mode = resolveVideoMode(config.videoMode, images.length);
+    if (mode === "frames" && images.length > 2) throw new Error("首尾帧模式最多允许两张图片，请切换为全参考模式。");
+    if (mode === "frames" && options?.videos?.length) throw new Error("首尾帧模式不支持同时添加参考视频，请切换为全参考模式。");
+    const imageTags = mode === "frames"
+        ? (images.length > 1 ? "<FIRST_FRAME> <LAST_FRAME>" : images.length ? "<FIRST_FRAME>" : "")
+        : images.map((_, index) => `<IMAGE_REF_${index}>`).join(" ");
+    const videoTags = mode === "reference" ? (options?.videos || []).map((_, index) => `<VIDEO_REF_${index}>`).join(" ") : "";
+    input.push({ type: "text", text: [imageTags, videoTags, prompt].filter(Boolean).join(" ") });
     const resolution = normalizeVideoResolution(config.vquality).toLowerCase();
     const seconds = Math.max(3, Math.min(10, Number(config.videoSeconds) || 6));
     const ratio = videoAspectRatio(config.size);

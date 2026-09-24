@@ -2,6 +2,8 @@
 
 ## Unreleased
 
++ [修复] 恢复 Gemini Omni 的首尾帧 / 全参考模式切换；按 Google 官方媒体标签分别设置首帧、尾帧及多图/多视频参考，避免两种模式请求完全相同。
+
 + [修复] Omni 模型无论渠道误存为 OpenAI 格式，均优先走 Gemini Interactions；非 Google 官方地址明确提示修正渠道，不再错误发送至 OpenAI 视频接口。
 
 + [Fix] Route Gemini Omni 1.1 Flash through the official Interactions API, even when a legacy Veo script is saved.
