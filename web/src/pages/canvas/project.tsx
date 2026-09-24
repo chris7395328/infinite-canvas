@@ -9,7 +9,7 @@ import { requestEdit, requestGeneration, requestImageQuestion } from "@/services
 import { requestAudioGeneration, storeGeneratedAudio } from "@/services/api/audio";
 import { createVideoGenerationTask, isVideoTaskFailed, storeGeneratedVideo, waitForVideoGenerationTask } from "@/services/api/video";
 import { isMoyuSeedance } from "@/services/api/moyu-video";
-import { defaultConfig, useConfigStore, useEffectiveConfig, type AiConfig } from "@/stores/use-config-store";
+import { defaultConfig, resolveModelRequestConfig, useConfigStore, useEffectiveConfig, type AiConfig } from "@/stores/use-config-store";
 import { ensureImagePreview, uploadImage } from "@/services/image-storage";
 import { uploadMediaFile, type UploadedFile } from "@/services/file-storage";
 import { nanoid } from "nanoid";
@@ -2779,7 +2779,7 @@ function InfiniteCanvasPage() {
             // its task ID being parsed. Recovery must NEVER submit another POST.
             if (node.type === CanvasNodeType.Video && node.metadata?.status === NODE_STATUS_ERROR && !node.metadata.videoTaskId) {
                 const recoveryConfig = buildGenerationConfig(effectiveConfig, node, "video");
-                if (isMoyuSeedance({ ...recoveryConfig, model: recoveryConfig.model.split("::").pop() || recoveryConfig.model })) {
+                if (isMoyuSeedance(resolveModelRequestConfig(recoveryConfig, recoveryConfig.model))) {
                     const taskId = window.prompt("此魔芋节点可能已扣费生成。请输入原任务 ID（查询并回填），或已生成视频的 HTTPS 地址（直接导入）；不会重新生成。取消则保留错误节点：");
                     if (!taskId?.trim()) return;
                     if (/^https:\/\//i.test(taskId.trim())) {

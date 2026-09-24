@@ -49,16 +49,22 @@ export async function createMoyuSeedanceTask(config: AiConfig, prompt: string, i
     const content: Array<Record<string, unknown>> = [{ type: "text", text: prompt.trim() }];
     for (const [index, image] of images.entries()) {
         // Ordinary images accept data URLs directly; a local blob: URL is never sent to the upstream API.
-        const url = await uploadMoyuCos(await imageToDataUrl(image), "image", config, options?.signal);
+        const source = /^https?:\/\//i.test(image.url || "") ? image.url! : await imageToDataUrl(image);
+        const url = source.startsWith("data:") && config.seedance.cosEnabled
+            ? await uploadMoyuCos(source, "image", config, options?.signal) : source;
         const role = params.mode === "frames" ? (index === 0 ? "first_frame" : "last_frame") : "reference_image";
         content.push({ type: "image_url", image_url: { url }, role });
     }
     for (const video of options?.videos || []) {
-        const url = await uploadMoyuCos(await localMediaDataUrl(video, options?.signal), "video", config, options?.signal);
+        const url = /^https?:\/\//i.test(video.url) || video.url.startsWith("asset://")
+            ? video.url : await uploadMoyuCos(await localMediaDataUrl(video, options?.signal), "video", config, options?.signal);
         content.push({ type: "video_url", video_url: { url }, role: "reference_video" });
     }
     for (const audio of options?.audios || []) {
-        const url = await uploadMoyuCos(await localMediaDataUrl(audio, options?.signal), "audio", config, options?.signal);
+        const source = /^https?:\/\//i.test(audio.url) || audio.url.startsWith("asset://")
+            ? audio.url : await localMediaDataUrl(audio, options?.signal);
+        const url = source.startsWith("data:") && config.seedance.cosEnabled
+            ? await uploadMoyuCos(source, "audio", config, options?.signal) : source;
         content.push({ type: "audio_url", audio_url: { url }, role: "reference_audio" });
     }
     const metadata: Record<string, unknown> = {
