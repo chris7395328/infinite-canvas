@@ -41,6 +41,6 @@ if ($isRunning) {
 
 if ($RestartSeedanceBridge) {
     & (Join-Path $projectRoot "start-seedance-bridge.ps1") -Restart
-} elseif ($SeedanceBridge) {
+} else {
     & (Join-Path $projectRoot "start-seedance-bridge.ps1")
 }

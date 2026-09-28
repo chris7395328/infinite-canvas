@@ -2,6 +2,8 @@
 
 ## Unreleased
 
++ [调整] `start-infinite-canvas.ps1` 改为一键同时启动网页与 Seedance bridge；更新 bridge 后仍可使用 `-RestartSeedanceBridge` 强制加载最新代码。
+
 + [修复] 魔芋 Seedance 独立走 `/v1/video/generations` JSON 协议；创建后保存 task ID，按专用状态接口取回视频，避免误走 `/v1/videos`。
 + [修复] 魔芋图片／视频／音频参考均先通过现有 Bridge 上传 COS，再提交公网 URL；原有方舟私域素材流程保持不变。Seedance 2.0 不提交 2.5 专属 MOV 参数。
 + [恢复] 魔芋错误视频节点的“重试”优先接受后台原任务 ID 或 HTTPS 成品地址恢复，不会额外创建付费任务。
