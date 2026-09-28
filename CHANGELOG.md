@@ -2,6 +2,8 @@
 
 ## Unreleased
 
++ [新增] OpenAI GPT Image 2.5 Flare 与 Sunburst 自动显示官方共有的 `auto / low / medium / high / xhigh / max` 质量档；模型切换、历史节点和请求层都会将无效值回退为 `auto`。
+
 + [调整] `start-infinite-canvas.ps1` 改为一键同时启动网页与 Seedance bridge；更新 bridge 后仍可使用 `-RestartSeedanceBridge` 强制加载最新代码。
 + [修复] 已生成的图片、视频、音频和文本节点再次生成时改为复制原始入线与提示词，不再把前一个生成结果作为新的参考素材。
 

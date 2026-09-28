@@ -4,6 +4,7 @@ import { persist } from "zustand/middleware";
 import { nanoid } from "nanoid";
 
 import i18n from "@/i18n";
+import { normalizeImageQualityForModel } from "@/lib/image-quality";
 
 export type ApiCallFormat = "openai" | "gemini" | "volcengine";
 export type ModelCapability = "image" | "video" | "text" | "audio";
@@ -271,12 +272,12 @@ export const useConfigStore = create<ConfigStore>()(
             configTab: "channels",
             shouldPromptContinue: false,
             updateConfig: (key, value) =>
-                set((state) => ({
-                    config: {
-                        ...state.config,
-                        [key]: value,
-                    },
-                })),
+                set((state) => {
+                    const config = { ...state.config, [key]: value };
+                    if (key === "imageModel") config.quality = normalizeImageQualityForModel(String(value), config.quality);
+                    if (key === "quality") config.quality = normalizeImageQualityForModel(config.imageModel || config.model, String(value));
+                    return { config };
+                }),
             importChannelCredentials: (input) => {
                 const currentConfig = get().config;
                 const result = upsertChannelCredentials(currentConfig, input);

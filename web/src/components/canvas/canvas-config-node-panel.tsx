@@ -13,6 +13,7 @@ import { CanvasVideoSettingsPopover } from "./canvas-video-settings-popover";
 import type { VideoSettingsKey } from "@/components/video-settings-panel";
 import { CanvasTextSettingsPopover } from "./canvas-text-settings-popover";
 import type { CanvasGenerationMode, CanvasNodeData, CanvasNodeMetadata } from "@/types/canvas";
+import { normalizeImageQualityForModel } from "@/lib/image-quality";
 
 type CanvasConfigNodePanelProps = {
     node: CanvasNodeData;
@@ -100,7 +101,7 @@ export function CanvasConfigNodePanel({ node, isRunning, inputSummary, onConfigC
             </div>
 
             <div className="mb-2 grid min-w-0 cursor-default grid-cols-[minmax(0,1fr)_148px] items-center gap-2" onMouseDown={(event) => event.stopPropagation()}>
-                <ModelPicker className="canvas-compact-control h-10" config={config} value={config.model} onChange={(model) => onConfigChange(node.id, { model })} capability={mode} onMissingConfig={() => openConfigDialog(true)} fullWidth />
+                <ModelPicker className="canvas-compact-control h-10" config={config} value={config.model} onChange={(model) => onConfigChange(node.id, mode === "image" ? { model, quality: normalizeImageQualityForModel(model, config.quality) } : { model })} capability={mode} onMissingConfig={() => openConfigDialog(true)} fullWidth />
                 {mode === "video" ? (
                     <CanvasVideoSettingsPopover config={config} placement="topRight" buttonClassName="canvas-compact-control !h-10 !w-full !justify-start !rounded-lg !px-2" onConfigChange={(key, value) => onConfigChange(node.id, { ...videoConfigPatch(key, value), ...(key === "seedanceDraft" && value === "true" ? { seedanceFormalResolution: config.vquality } : key === "seedanceDraft" ? { vquality: node.metadata?.seedanceFormalResolution || "720" } : {}) })} />
                 ) : mode === "image" ? (
