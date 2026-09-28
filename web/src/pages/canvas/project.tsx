@@ -2311,6 +2311,13 @@ function InfiniteCanvasPage() {
     const handleGenerateNode = useCallback(
         async (nodeId: string, mode: CanvasNodeGenerationMode, prompt: string, overrides?: Partial<AiConfig>) => {
             const sourceNode = nodesRef.current.find((node) => node.id === nodeId);
+            const sourceInputConnections = connectionsRef.current.filter((connection) => connection.toNodeId === nodeId);
+            const isGeneratedNodeCopy = Boolean(sourceNode?.metadata?.content && sourceNode?.metadata?.model && sourceInputConnections.length);
+            const generationSource = isGeneratedNodeCopy ? findRetrySourceNode(nodeId, nodesRef.current, connectionsRef.current) || sourceNode : sourceNode;
+            const copySourceConnections = (targetNodeId: string) =>
+                isGeneratedNodeCopy
+                    ? sourceInputConnections.map((connection) => ({ id: nanoid(), fromNodeId: connection.fromNodeId, toNodeId: targetNodeId }))
+                    : [{ id: nanoid(), fromNodeId: nodeId, toNodeId: targetNodeId }];
             const baseGenerationConfig = buildGenerationConfig(effectiveConfig, sourceNode, mode);
             const generationConfig = overrides ? { ...baseGenerationConfig, ...overrides, seedance: { ...baseGenerationConfig.seedance, ...overrides.seedance } } : baseGenerationConfig;
             if (!isAiConfigReady(generationConfig, generationConfig.model)) {
@@ -2356,9 +2363,9 @@ function InfiniteCanvasPage() {
             const sourceTextContent = sourceNode?.type === CanvasNodeType.Text ? sourceNode.metadata?.content?.trim() || "" : "";
             const editingTextNode = mode === "text" && Boolean(sourceTextContent);
             const generationContext = await hydrateNodeGenerationContext(
-                buildNodeGenerationContext(nodeId, nodesRef.current, connectionsRef.current, editingTextNode ? t("canvas.projectPage.editTextPrompt", { source: sourceTextContent, prompt }) : prompt),
+                buildNodeGenerationContext(generationSource?.id || nodeId, nodesRef.current, connectionsRef.current, isGeneratedNodeCopy ? generationSource?.metadata?.composerContent || generationSource?.metadata?.prompt || prompt : editingTextNode ? t("canvas.projectPage.editTextPrompt", { source: sourceTextContent, prompt }) : prompt),
             );
-            const effectivePrompt = generationContext.prompt.trim();
+            const effectivePrompt = (isGeneratedNodeCopy ? prompt : generationContext.prompt).trim();
             if (runController.signal.aborted) {
                 finishGenerationRequest(nodeId, runController);
                 setRunningNodeId(null);
@@ -2380,7 +2387,7 @@ function InfiniteCanvasPage() {
                     const isImageNode = sourceNode?.type === CanvasNodeType.Image;
                     const isEmptyImageNode = isImageNode && !sourceNode?.metadata?.content;
                     const sourceReference =
-                        isImageNode && sourceNode?.metadata?.content
+                        isImageNode && sourceNode?.metadata?.content && !isGeneratedNodeCopy
                             ? [{ id: sourceNode.id, name: `${sourceNode.title || sourceNode.id}.png`, type: sourceNode.metadata.mimeType || "image/png", dataUrl: sourceNode.metadata.content, storageKey: sourceNode.metadata.storageKey }]
                             : [];
                     const referenceImages = [...new Map([...sourceReference, ...generationContext.referenceImages].map((image) => [image.id, image])).values()];
@@ -2444,7 +2451,7 @@ function InfiniteCanvasPage() {
                         ),
                         ...(isEmptyImageNode ? [] : [rootNode]),
                     ]);
-                    if (!isEmptyImageNode) setConnections((prev) => [...prev, { id: nanoid(), fromNodeId: nodeId, toNodeId: rootId }]);
+                    if (!isEmptyImageNode) setConnections((prev) => [...prev, ...copySourceConnections(rootId)]);
                     setSelectedNodeIds(new Set([nodeId]));
                     setSelectedConnectionId(null);
                     setDialogNodeId(nodeId);
@@ -2557,7 +2564,7 @@ function InfiniteCanvasPage() {
                             ? prev.map((node) => (node.id === nodeId ? { ...node, ...videoNode } : node))
                             : [...prev.map((node) => (node.id === nodeId ? { ...node, metadata: { ...node.metadata, status: NODE_STATUS_SUCCESS } } : node)), videoNode],
                     );
-                    if (!isEmptyVideoNode) setConnections((prev) => [...prev, { id: nanoid(), fromNodeId: nodeId, toNodeId: videoId }]);
+                    if (!isEmptyVideoNode) setConnections((prev) => [...prev, ...copySourceConnections(videoId)]);
                     const controller = startGenerationRequest(videoId, nodeId, nodeId, runController);
                     try {
                         await completeVideoNodeTask(videoId, generationConfig, effectivePrompt, generationContext.referenceImages, controller.signal, {
@@ -2595,7 +2602,7 @@ function InfiniteCanvasPage() {
                             ? prev.map((node) => (node.id === nodeId ? { ...node, ...audioNode } : node))
                             : [...prev.map((node) => (node.id === nodeId ? { ...node, metadata: { ...node.metadata, status: NODE_STATUS_SUCCESS } } : node)), audioNode],
                     );
-                    if (!isEmptyAudioNode) setConnections((prev) => [...prev, { id: nanoid(), fromNodeId: nodeId, toNodeId: audioId }]);
+                    if (!isEmptyAudioNode) setConnections((prev) => [...prev, ...copySourceConnections(audioId)]);
                     const controller = startGenerationRequest(audioId, nodeId, nodeId, runController);
                     try {
                         const audio = await storeGeneratedAudio(await requestAudioGeneration(generationConfig, effectivePrompt, { signal: controller.signal }), generationConfig.audioFormat);
@@ -2638,7 +2645,7 @@ function InfiniteCanvasPage() {
                         ? prev.map((node) => (node.id === nodeId ? { ...node, ...rootNode } : node))
                         : [...prev.map((node) => (node.id === nodeId && isConfigNode ? { ...node, metadata: { ...node.metadata, status: NODE_STATUS_LOADING, errorDetails: undefined } } : node)), rootNode],
                 );
-                if (!isEmptyTextNode) setConnections((prev) => [...prev, { id: nanoid(), fromNodeId: nodeId, toNodeId: rootId }]);
+                if (!isEmptyTextNode) setConnections((prev) => [...prev, ...copySourceConnections(rootId)]);
                 setSelectedNodeIds(new Set([nodeId]));
                 setSelectedConnectionId(null);
                 setDialogNodeId(nodeId);
