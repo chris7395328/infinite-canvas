@@ -7,6 +7,8 @@ description: Implemented changes that still need manual verification
 
 The current release needs manual verification in these areas:
 
+- Personal Docker Hub publishing: after setting the `DOCKERHUB_USERNAME` Actions variable and `DOCKERHUB_TOKEN` Actions secret in a fork, pushes affecting `web/`, Docker files, or docs must respectively build and push `<username>/infinite-canvas` and `<username>/infinite-canvas-docs`; the default branch updates `latest`, while other branches retain branch and SHA tags. Root `.env` overrides for `DOCKER_IMAGE` / `DOCS_DOCKER_IMAGE` must be honored by Compose, and `.env`, browser-local API configuration, and Docker tokens must never enter Git history or the image build context.
+
 - Local-storage history cleanup: after confirming Clean history files in Settings → Local storage, only image, audio, video, and image-preview files not referenced by any canvas or My Assets, plus the image/video workbench history that points to those files, should be removed. Files still used in a canvas or My Assets must remain usable for previewing, downloading, and generation references. IndexedDB and site-usage statistics should refresh automatically; available quota remains browser-managed and dynamic.
 
 - OpenAI GPT Image 2.5: after selecting `gpt-image-2.5-flare` or `gpt-image-2.5-sunburst`, both the Image workbench and canvas image-node settings must show the identical six options: Auto, Low, Medium, High, Extra high, and Maximum. Generation and edit requests must forward `xhigh` and `max` unchanged. Switching back to another image model must not retain either unsupported value; `standard` must not be offered for these two official models.

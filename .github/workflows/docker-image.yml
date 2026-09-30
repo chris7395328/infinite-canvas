@@ -2,15 +2,21 @@ name: Docker image
 
 on:
   push:
+    branches: ["**"]
     tags: ["v*"]
+    paths:
+      - "Dockerfile"
+      - "nginx.conf"
+      - "VERSION"
+      - "web/**"
+      - ".github/workflows/docker-image.yml"
   workflow_dispatch:
 
 permissions:
   contents: read
-  packages: write
 
 env:
-  IMAGE_NAME: ghcr.io/basketikun/infinite-canvas
+  IMAGE_NAME: ${{ vars.DOCKERHUB_USERNAME }}/infinite-canvas
 
 jobs:
   meta:
@@ -19,11 +25,17 @@ jobs:
       tags: ${{ steps.meta.outputs.tags }}
       labels: ${{ steps.meta.outputs.labels }}
     steps:
+      - name: Require Docker Hub configuration
+        env:
+          DOCKERHUB_USERNAME: ${{ vars.DOCKERHUB_USERNAME }}
+        run: test -n "$DOCKERHUB_USERNAME"
       - id: meta
         uses: docker/metadata-action@v5
         with:
           images: ${{ env.IMAGE_NAME }}
           tags: |
+            type=raw,value=latest,enable={{is_default_branch}}
+            type=ref,event=branch
             type=ref,event=tag
             type=sha,prefix=
 
@@ -47,9 +59,8 @@ jobs:
 
       - uses: docker/login-action@v3
         with:
-          registry: ghcr.io
-          username: ${{ github.actor }}
-          password: ${{ secrets.GITHUB_TOKEN }}
+          username: ${{ vars.DOCKERHUB_USERNAME }}
+          password: ${{ secrets.DOCKERHUB_TOKEN }}
 
       - id: build
         uses: docker/build-push-action@v6
@@ -85,9 +96,8 @@ jobs:
 
       - uses: docker/login-action@v3
         with:
-          registry: ghcr.io
-          username: ${{ github.actor }}
-          password: ${{ secrets.GITHUB_TOKEN }}
+          username: ${{ vars.DOCKERHUB_USERNAME }}
+          password: ${{ secrets.DOCKERHUB_TOKEN }}
 
       - uses: actions/download-artifact@v4
         with:

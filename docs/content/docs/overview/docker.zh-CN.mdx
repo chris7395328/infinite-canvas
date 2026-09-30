@@ -9,11 +9,16 @@ description: 使用 Docker Compose 部署无限画布
 
 ## 使用发布镜像
 
+fork 到自己的 GitHub 仓库后，先创建 Docker Hub 中的公开仓库 `infinite-canvas`（文档站可另建 `infinite-canvas-docs`），再按下面操作：
+
 ```bash
-git clone git@github.com:basketikun/infinite-canvas.git
+git clone https://github.com/<你的 GitHub 用户名>/infinite-canvas.git
 cd infinite-canvas
+cp .env.example .env
 docker compose up -d
 ```
+
+将 `.env` 的 `DOCKER_IMAGE` 改为 `<你的 Docker Hub 用户名>/infinite-canvas:latest`。没有设置该变量时，Compose 会继续使用上游公开镜像；`.env` 已被 Git 忽略，不要在其中写入或提交 API Key、Docker Token。
 
 启动后访问：
 
@@ -29,6 +34,16 @@ http://localhost:3000
 docker compose -f docker-compose.local.yml up -d --build
 ```
 
+## Fork 后自动发布到 Docker Hub
+
+两个工作流会在相关源码推送到任意分支后构建多架构镜像：默认分支额外更新 `latest`，其他分支使用分支名和提交 SHA 标签。首次推送前，在你的 fork 中进入 **Settings → Secrets and variables → Actions**：
+
+1. 在 **Variables** 新建 `DOCKERHUB_USERNAME`，值为你的 Docker Hub 用户名。
+2. 在 **Secrets** 新建 `DOCKERHUB_TOKEN`，值为 Docker Hub 创建的访问令牌，权限选择 Read & Write。
+3. 之后推送 `web/`、Dockerfile 或文档相关改动，分别触发主应用和文档镜像工作流；也可在 Actions 页面手动运行。
+
+工作流只读取这两个 GitHub Actions 配置，不会读取浏览器本地 API 配置，也不会把 Token 写入仓库。
+
 ## 文档站镜像
 
 文档站位于 `docs/` 目录，按带服务端能力的 Next.js standalone 应用单独构建，不打进主应用镜像。
@@ -39,6 +54,8 @@ docker compose -f docker-compose.local.yml up -d --build
 cd docs
 docker compose up -d
 ```
+
+首次使用前仍在仓库根目录执行 `cp .env.example .env`，并把其中的 `DOCS_DOCKER_IMAGE` 改为你的 Docker Hub 文档镜像。
 
 基于当前源码本地构建：
 
@@ -67,7 +84,7 @@ docker compose -f docker-compose.local.yml up -d --build
 ```yaml
 services:
   app:
-    image: ghcr.io/basketikun/infinite-canvas:latest
+    image: <你的 Docker Hub 用户名>/infinite-canvas:latest
     ports:
       - "3000:3000"
     environment:
@@ -81,7 +98,7 @@ services:
 docker run -d -p 3000:3000 \
   -e ANALYTICS_GA4_ID=G-XXXXXXXXXX \
   -e ANALYTICS_BAIDU_ID=e8263761cc5c32f5f7a855b8203b965a \
-  ghcr.io/basketikun/infinite-canvas:latest
+  <你的 Docker Hub 用户名>/infinite-canvas:latest
 ```
 
 单页应用的路由切换会自动向所有已启用的统计上报 pageview。

@@ -7,11 +7,16 @@ description: Deploy Infinite Canvas with Docker Compose
 
 ## Use the published image
 
+After forking to your own GitHub repository, create a public Docker Hub repository named `infinite-canvas` (and optionally `infinite-canvas-docs` for the documentation site), then run:
+
 ```bash
-git clone git@github.com:basketikun/infinite-canvas.git
+git clone https://github.com/<your-github-username>/infinite-canvas.git
 cd infinite-canvas
+cp .env.example .env
 docker compose up -d
 ```
+
+Set `DOCKER_IMAGE` in `.env` to `<your-dockerhub-username>/infinite-canvas:latest`. Without it, Compose continues to use the upstream public image. `.env` is Git-ignored: never put API keys or Docker tokens in a committed file.
 
 Open `http://localhost:3000`.
 
@@ -21,6 +26,16 @@ Open `http://localhost:3000`.
 docker compose -f docker-compose.local.yml up -d --build
 ```
 
+## Publish a fork to Docker Hub
+
+The two Docker workflows build multi-architecture images when their related source files are pushed to any branch. The default branch also updates `latest`; other branches receive their branch and commit-SHA tags. Before the first push, open **Settings → Secrets and variables → Actions** in your fork:
+
+1. Add a `DOCKERHUB_USERNAME` Actions variable with your Docker Hub username.
+2. Add a `DOCKERHUB_TOKEN` Actions secret containing a Docker Hub Read & Write access token.
+3. Push changes under `web/`, Docker files, or `docs/` to trigger the respective application or documentation workflow, or start either workflow manually from Actions.
+
+The workflows read only these two GitHub Actions settings. They do not read browser-local API configuration or commit the token.
+
 ## Documentation image
 
 The documentation in `docs/` is a separate Next.js standalone application with server capabilities.
@@ -29,6 +44,8 @@ The documentation in `docs/` is a separate Next.js standalone application with s
 cd docs
 docker compose up -d
 ```
+
+For first use, run `cp .env.example .env` from the repository root and set `DOCS_DOCKER_IMAGE` to your documentation image.
 
 To build it from the current source:
 
@@ -51,7 +68,7 @@ No analytics are enabled by default. A deployment can enable GA4, Baidu Analytic
 ```yaml
 services:
   app:
-    image: ghcr.io/basketikun/infinite-canvas:latest
+    image: <your-dockerhub-username>/infinite-canvas:latest
     ports:
       - "3000:3000"
     environment:

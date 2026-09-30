@@ -135,12 +135,15 @@ bun run dev
 ### Docker 运行
 
 ```bash
-git clone git@github.com:basketikun/infinite-canvas.git
+git clone https://github.com/<你的 GitHub 用户名>/infinite-canvas.git
 cd infinite-canvas
+cp .env.example .env
 docker compose up -d
 ```
 
 运行后默认端口3000，可访问 `http://localhost:3000`。
+
+fork 后使用 Docker Hub 镜像时，将 `.env` 中的 `DOCKER_IMAGE` 改为 `<你的 Docker Hub 用户名>/infinite-canvas:latest`；`.env` 已被忽略，不要提交 API Key、Docker Token 或其他凭据。
 
 首次打开后进入右上角配置，填入自己的 OpenAI 兼容 `Base URL` 和 `API Key`。
 
