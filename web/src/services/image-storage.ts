@@ -250,15 +250,29 @@ export async function cleanupUnusedImages(usedData: unknown) {
             collectImageStorageKeys(value, usedKeys);
         }),
     ]);
+    await cleanupImageFiles(usedKeys);
+}
+
+/** Remove image files and previews that are not referenced by the supplied live data. */
+export async function cleanupImageFiles(usedKeys: Iterable<string>) {
+    const used = new Set(usedKeys);
     const unused: string[] = [];
-    await store.iterate((_value, key) => {
-        if (!usedKeys.has(key)) unused.push(key);
+    let bytes = 0;
+    await store.iterate((value, key) => {
+        if (used.has(key)) return;
+        unused.push(key);
+        if (value instanceof Blob) bytes += value.size;
     });
     const orphanPreviews: string[] = [];
-    await previewStore.iterate((_value, key) => {
-        if (!usedKeys.has(key)) orphanPreviews.push(key);
+    await previewStore.iterate((value, key) => {
+        if (used.has(key)) return;
+        orphanPreviews.push(key);
+        const preview = value && typeof value === "object" && "blob" in value ? value.blob : undefined;
+        if (preview instanceof Blob) bytes += preview.size;
     });
-    await Promise.all([deleteStoredImages(unused), ...orphanPreviews.map(deleteImagePreview)]);
+    const orphanPreviewOnly = orphanPreviews.filter((key) => !unused.includes(key));
+    await Promise.all([deleteStoredImages(unused), ...orphanPreviewOnly.map(deleteImagePreview)]);
+    return { files: unused.length, bytes };
 }
 
 export function collectImageStorageKeys(value: unknown, keys = new Set<string>()) {

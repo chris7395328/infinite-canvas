@@ -408,6 +408,12 @@ export default {
             records: "{{count}} 条",
             refresh: "刷新统计",
             readFailed: "读取本地存储失败",
+            cleanup: "清理历史文件",
+            cleanupConfirmTitle: "清理未引用的历史文件？",
+            cleanupConfirmDescription: "会删除不在任何画布或“我的素材”中的生成文件、缩略图及对应工作台历史记录，无法恢复。",
+            cleanupSuccess: "已清理 {{files}} 个未引用文件、{{historyRecords}} 条历史记录，释放 {{bytes}}。",
+            cleanupEmpty: "没有可清理的未引用历史文件。",
+            cleanupFailed: "清理历史文件失败",
             stores: { appState: "应用状态", images: "图片文件", imagePreviews: "图片缩略图", media: "音视频文件", imageLogs: "生图记录", videoLogs: "视频记录", agentMessages: "Agent 消息", promptCache: "提示词缓存" },
         },
         promptSources: {

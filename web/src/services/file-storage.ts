@@ -53,11 +53,21 @@ export async function deleteStoredMedia(keys: Iterable<string>) {
 
 export async function cleanupUnusedMedia(usedData: unknown) {
     const usedKeys = collectMediaStorageKeys(usedData);
+    await cleanupMediaFiles(usedKeys);
+}
+
+/** Remove audio/video files that are not referenced by the supplied live data. */
+export async function cleanupMediaFiles(usedKeys: Iterable<string>) {
+    const used = new Set(usedKeys);
     const unused: string[] = [];
-    await store.iterate((_value, key) => {
-        if (!usedKeys.has(key)) unused.push(key);
+    let bytes = 0;
+    await store.iterate((value, key) => {
+        if (used.has(key)) return;
+        unused.push(key);
+        if (value instanceof Blob) bytes += value.size;
     });
-    await Promise.all(unused.map((key) => store.removeItem(key)));
+    await deleteStoredMedia(unused);
+    return { files: unused.length, bytes };
 }
 
 export function collectMediaStorageKeys(value: unknown, keys = new Set<string>()) {

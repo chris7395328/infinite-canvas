@@ -1,10 +1,11 @@
-import { Alert, Button, Progress, Spin } from "antd";
+import { Alert, Button, Popconfirm, Progress, Spin } from "antd";
 import type { TFunction } from "i18next";
-import { Database, HardDrive, Layers3, RefreshCw } from "lucide-react";
+import { Database, HardDrive, Layers3, RefreshCw, Trash2 } from "lucide-react";
 import { useCallback, useEffect, useState, type ReactNode } from "react";
 import { useTranslation } from "react-i18next";
 
 import { readLocalStorageUsage, type LocalStorageUsage } from "@/services/local-storage-usage";
+import { cleanupUnreferencedHistoryFiles } from "@/services/local-storage-cleanup";
 
 const storeLabelKeys: Record<string, string> = {
     app_state: "appState",
@@ -21,7 +22,10 @@ export function ConfigLocalStorage({ active }: { active: boolean }) {
     const { t } = useTranslation();
     const [usage, setUsage] = useState<LocalStorageUsage | null>(null);
     const [loading, setLoading] = useState(false);
+    const [cleaning, setCleaning] = useState(false);
     const [error, setError] = useState("");
+    const [cleanupError, setCleanupError] = useState("");
+    const [cleanupResult, setCleanupResult] = useState<{ files: number; historyRecords: number; bytes: string } | null>(null);
 
     const refresh = useCallback(async () => {
         setLoading(true);
@@ -34,6 +38,21 @@ export function ConfigLocalStorage({ active }: { active: boolean }) {
             setLoading(false);
         }
     }, [t]);
+
+    const cleanupHistory = useCallback(async () => {
+        setCleaning(true);
+        setCleanupError("");
+        setCleanupResult(null);
+        try {
+            const result = await cleanupUnreferencedHistoryFiles();
+            setCleanupResult({ ...result, bytes: formatStorageBytes(result.bytes) });
+            await refresh();
+        } catch (reason) {
+            setCleanupError(reason instanceof Error ? reason.message : t("config.localStorage.cleanupFailed"));
+        } finally {
+            setCleaning(false);
+        }
+    }, [refresh, t]);
 
     useEffect(() => {
         if (active && !usage) void refresh();
@@ -53,11 +72,27 @@ export function ConfigLocalStorage({ active }: { active: boolean }) {
                         </div>
                         <div className="mt-1 text-xs text-stone-500">{t("config.localStorage.description")}</div>
                     </div>
-                    <Button icon={<RefreshCw className="size-4" />} loading={loading} onClick={() => void refresh()}>
-                        {t("config.localStorage.refresh")}
-                    </Button>
+                    <div className="flex flex-wrap gap-2">
+                        <Popconfirm
+                            title={t("config.localStorage.cleanupConfirmTitle")}
+                            description={t("config.localStorage.cleanupConfirmDescription")}
+                            okText={t("config.localStorage.cleanup")}
+                            cancelText={t("common.cancel")}
+                            okButtonProps={{ danger: true }}
+                            onConfirm={() => void cleanupHistory()}
+                        >
+                            <Button danger icon={<Trash2 className="size-4" />} loading={cleaning}>
+                                {t("config.localStorage.cleanup")}
+                            </Button>
+                        </Popconfirm>
+                        <Button icon={<RefreshCw className="size-4" />} loading={loading} onClick={() => void refresh()}>
+                            {t("config.localStorage.refresh")}
+                        </Button>
+                    </div>
                 </div>
                 {error ? <Alert className="mt-4" type="error" showIcon message={t("config.localStorage.readFailed")} description={error} /> : null}
+                {cleanupError ? <Alert className="mt-4" type="error" showIcon message={t("config.localStorage.cleanupFailed")} description={cleanupError} /> : null}
+                {cleanupResult ? <Alert className="mt-4" type={cleanupResult.files || cleanupResult.historyRecords ? "success" : "info"} showIcon message={cleanupResult.files || cleanupResult.historyRecords ? t("config.localStorage.cleanupSuccess", cleanupResult) : t("config.localStorage.cleanupEmpty")} /> : null}
                 {!usage && loading ? (
                     <div className="flex min-h-48 items-center justify-center"><Spin /></div>
                 ) : usage ? (

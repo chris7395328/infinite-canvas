@@ -2,6 +2,8 @@
 
 ## Unreleased
 
++ [新增] 配置 → 本地存储新增「清理历史文件」：清理未被任一画布或“我的素材”引用的图片、音视频、缩略图及对应工作台历史，并立即刷新占用统计。
+
 + [新增] OpenAI GPT Image 2.5 Flare 与 Sunburst 自动显示官方共有的 `auto / low / medium / high / xhigh / max` 质量档；模型切换、历史节点和请求层都会将无效值回退为 `auto`。
 
 + [调整] `start-infinite-canvas.ps1` 改为一键同时启动网页与 Seedance bridge；更新 bridge 后仍可使用 `-RestartSeedanceBridge` 强制加载最新代码。

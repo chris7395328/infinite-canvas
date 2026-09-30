@@ -408,6 +408,12 @@ export default {
             records: "{{count}} records",
             refresh: "Refresh usage",
             readFailed: "Failed to read local storage",
+            cleanup: "Clean history files",
+            cleanupConfirmTitle: "Clean unreferenced history files?",
+            cleanupConfirmDescription: "Generated files, previews, and matching workbench history that are not used by any canvas or My Assets will be permanently deleted.",
+            cleanupSuccess: "Cleaned {{files}} unreferenced files and {{historyRecords}} history records, freeing {{bytes}}.",
+            cleanupEmpty: "No unreferenced history files to clean.",
+            cleanupFailed: "Failed to clean history files",
             stores: { appState: "App state", images: "Image files", imagePreviews: "Image thumbnails", media: "Audio and video files", imageLogs: "Image history", videoLogs: "Video history", agentMessages: "Agent messages", promptCache: "Prompt cache" },
         },
         promptSources: {
