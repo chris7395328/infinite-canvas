@@ -50,7 +50,7 @@ import { usePluginHost } from "@/pages/canvas/hooks/use-plugin-host";
 import { buildNodeMentionReferences, getGroupResourceNodes, isCanvasReferenceNode, type CanvasResourceReference } from "@/lib/canvas/canvas-resource-references";
 import { exportCanvasProjects } from "@/lib/canvas/canvas-export";
 import { applyNodeConfigPatch, audioMetadata, buildAudioGenerationMetadata, buildImageGenerationMetadata, createCanvasNode, imageMetadata, videoMetadata } from "@/lib/canvas/canvas-node-factory";
-import { applyGroupSelection, applyUngroupSelection, canGroupSelectedNodes, canUngroupSelectedNodes, collectGroupMemberNodes, findContainingGroupId, findGroupDropTarget, getConnectionTargetAnchor, getGroupWrapRect, normalizeConnection, snapNodesIntoGroup } from "@/lib/canvas/canvas-node-geometry";
+import { applyGroupSelection, applyUngroupSelection, canGroupSelectedNodes, canUngroupSelectedNodes, collectGroupMemberNodes, findContainingGroupId, findGroupDropTarget, getConnectionTargetAnchor, getGroupWrapRect, nodeBounds, normalizeConnection, snapNodesIntoGroup } from "@/lib/canvas/canvas-node-geometry";
 import {
     audioExtension,
     buildAngleLabel,
@@ -225,7 +225,7 @@ function InfiniteCanvasPage() {
     const [chatSessions, setChatSessions] = useState<CanvasAssistantSession[]>([]);
     const [activeChatId, setActiveChatId] = useState<string | null>(null);
     const [viewport, setViewport] = useState<ViewportTransform>({ x: 0, y: 0, k: 1 });
-    const [canvasTool, setCanvasTool] = useState<"select" | "pan">("pan");
+    const [canvasTool, setCanvasTool] = useState<"select" | "pan">("select");
     const [size, setSize] = useState({ width: 1200, height: 720 });
     const [selectedNodeIds, setSelectedNodeIds] = useState<Set<string>>(new Set());
     const [selectedConnectionId, setSelectedConnectionId] = useState<string | null>(null);
@@ -275,6 +275,7 @@ function InfiniteCanvasPage() {
     const connectingParamsRef = useRef(connectingParams);
     const connectionTargetNodeIdRef = useRef(connectionTargetNodeId);
     const selectionBoxRef = useRef(selectionBox);
+    const selectionResizeRef = useRef<Map<string, CanvasNodeData> | null>(null);
     const pendingConnectionCreateRef = useRef(pendingConnectionCreate);
     const generationRequestsRef = useRef(new Map<string, CanvasGenerationRequest>());
     const videoPollIdsRef = useRef(new Set<string>());
@@ -1200,6 +1201,30 @@ function InfiniteCanvasPage() {
         }
     }, [message, projectId, t]);
 
+    const startSelectedNodeDrag = useCallback((event: { clientX: number; clientY: number }, selectedIds: Set<string>) => {
+        const currentNodes = nodesRef.current;
+        const dragIds = new Set(selectedIds);
+        currentNodes.forEach((node) => {
+            if (!selectedIds.has(node.id) || node.type !== CanvasNodeType.Group) return;
+            currentNodes.forEach((child) => {
+                if (child.metadata?.groupId === node.id) dragIds.add(child.id);
+            });
+        });
+        const initialSelectedNodes = new Map(currentNodes.filter((node) => dragIds.has(node.id)).map((node): [string, { x: number; y: number }] => [node.id, { x: node.position.x, y: node.position.y }]));
+        if (initialSelectedNodes.size === 0) return;
+        dragRef.current = {
+            isDraggingNode: true,
+            hasMoved: false,
+            startX: event.clientX,
+            startY: event.clientY,
+            initialSelectedNodes,
+            movedIds: new Set(initialSelectedNodes.keys()),
+        };
+        historyPausedRef.current = true;
+        nodeDraggingRef.current = true;
+        setIsNodeDragging(true);
+    }, []);
+
     const handleCanvasMouseDown = useCallback(
         (event: ReactPointerEvent<HTMLDivElement>) => {
             setContextMenu(null);
@@ -1211,6 +1236,16 @@ function InfiniteCanvasPage() {
             if (event.button !== 0) return;
 
             const world = screenToCanvas(event.clientX, event.clientY);
+            const selected = nodesRef.current.filter((node) => selectedNodeIdsRef.current.has(node.id));
+            if (!event.shiftKey && selected.length > 1) {
+                const bounds = nodeBounds(selected);
+                const isInsideSelection = world.x >= bounds.left && world.x <= bounds.right && world.y >= bounds.top && world.y <= bounds.bottom;
+                if (isInsideSelection) {
+                    startSelectedNodeDrag(event, new Set(selectedNodeIdsRef.current));
+                    setSelectedConnectionId(null);
+                    return;
+                }
+            }
             const nextSelectionBox = {
                 startWorldX: world.x,
                 startWorldY: world.y,
@@ -1227,7 +1262,7 @@ function InfiniteCanvasPage() {
 
             setSelectedConnectionId(null);
         },
-        [cancelPendingConnectionCreate, screenToCanvas],
+        [cancelPendingConnectionCreate, screenToCanvas, startSelectedNodeDrag],
     );
 
     // Selection-only logic shared by the bubbling drag entry point and outer capture handler.
@@ -1266,31 +1301,10 @@ function InfiniteCanvasPage() {
     const handleNodeMouseDown = useCallback((event: ReactMouseEvent, nodeId: string) => {
         event.stopPropagation();
         // Capture already selected the node; this only starts dragging, with a fallback selection if capture did not run.
-        const currentNodes = nodesRef.current;
         const nextSelected = pendingSelectionRef.current ?? selectNodeByEvent(event, nodeId).nextSelected;
         pendingSelectionRef.current = null;
-        const dragIds = new Set(nextSelected);
-        currentNodes.forEach((node) => {
-            if (!nextSelected.has(node.id)) return;
-            if (node.type === CanvasNodeType.Group) {
-                currentNodes.forEach((child) => {
-                    if (child.metadata?.groupId === node.id) dragIds.add(child.id);
-                });
-            }
-        });
-        const initialSelectedNodes = new Map(currentNodes.filter((node) => dragIds.has(node.id)).map((node): [string, { x: number; y: number }] => [node.id, { x: node.position.x, y: node.position.y }]));
-        dragRef.current = {
-            isDraggingNode: true,
-            hasMoved: false,
-            startX: event.clientX,
-            startY: event.clientY,
-            initialSelectedNodes,
-            movedIds: new Set(initialSelectedNodes.keys()),
-        };
-        historyPausedRef.current = true;
-        nodeDraggingRef.current = true;
-        setIsNodeDragging(true);
-    }, []);
+        startSelectedNodeDrag(event, nextSelected);
+    }, [selectNodeByEvent, startSelectedNodeDrag]);
 
     const finishNodeDrag = useCallback((clientX?: number, clientY?: number) => {
         if (rafRef.current) {
@@ -1672,6 +1686,66 @@ function InfiniteCanvasPage() {
         setIsNodeResizing(true);
     }, []);
     const handleNodeResizeEnd = useCallback(() => setIsNodeResizing(false), []);
+
+    const handleSelectionResizeStart = useCallback((selection: CanvasNodeData[]) => {
+        selectionResizeRef.current = new Map(selection.map((node) => [node.id, { ...node, position: { ...node.position } }]));
+        historyPausedRef.current = true;
+        setIsNodeResizing(true);
+    }, []);
+
+    const handleSelectionResize = useCallback((start: { left: number; top: number; right: number; bottom: number }, next: { left: number; top: number; right: number; bottom: number }) => {
+        const initialNodes = selectionResizeRef.current;
+        if (!initialNodes) return;
+        const startWidth = Math.max(1, start.right - start.left);
+        const startHeight = Math.max(1, start.bottom - start.top);
+        const scaleX = (next.right - next.left) / startWidth;
+        const scaleY = (next.bottom - next.top) / startHeight;
+        setNodes((previous) =>
+            previous.map((node) => {
+                const initial = initialNodes.get(node.id);
+                if (!initial) return node;
+                return {
+                    ...node,
+                    position: {
+                        x: next.left + (initial.position.x - start.left) * scaleX,
+                        y: next.top + (initial.position.y - start.top) * scaleY,
+                    },
+                    width: Math.max(24, initial.width * scaleX),
+                    height: Math.max(24, initial.height * scaleY),
+                };
+            }),
+        );
+    }, []);
+
+    const handleSelectionResizeEnd = useCallback(() => {
+        selectionResizeRef.current = null;
+        historyPausedRef.current = false;
+        setIsNodeResizing(false);
+    }, []);
+
+    const arrangeSelectedNodes = useCallback((layout: "grid" | "column") => {
+        const selected = nodesRef.current
+            .filter((node) => selectedNodeIdsRef.current.has(node.id) && node.type !== CanvasNodeType.Group)
+            .sort((left, right) => left.position.y - right.position.y || left.position.x - right.position.x);
+        if (selected.length < 2) return;
+
+        const bounds = nodeBounds(selected);
+        const columns = layout === "column" ? 1 : Math.ceil(Math.sqrt(selected.length));
+        const largestWidth = Math.max(...selected.map((node) => node.width));
+        const largestHeight = Math.max(...selected.map((node) => node.height));
+        const gap = 32;
+        const positions = new Map<string, Position>();
+        selected.forEach((node, index) => {
+            const column = index % columns;
+            const row = Math.floor(index / columns);
+            positions.set(node.id, {
+                x: bounds.left + column * (largestWidth + gap),
+                y: bounds.top + row * (largestHeight + gap),
+            });
+        });
+        setNodes((previous) => previous.map((node) => (positions.has(node.id) ? { ...node, position: positions.get(node.id)! } : node)));
+        setToolbarNodeId(null);
+    }, []);
 
     const toggleNodeFreeResize = useCallback((nodeId: string) => {
         setNodes((prev) =>
@@ -3344,6 +3418,10 @@ function InfiniteCanvasPage() {
                         canUngroup={canUngroupSelection}
                         onGroup={groupSelection}
                         onUngroup={ungroupSelection}
+                        onResizeStart={handleSelectionResizeStart}
+                        onResize={handleSelectionResize}
+                        onResizeEnd={handleSelectionResizeEnd}
+                        onArrange={arrangeSelectedNodes}
                     />
                 ) : null}
 
