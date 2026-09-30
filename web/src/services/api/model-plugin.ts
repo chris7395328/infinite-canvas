@@ -1,7 +1,7 @@
 import axios, { type AxiosRequestConfig } from "axios";
 
 import i18n from "@/i18n";
-import { buildApiUrl, withLocalProxy, type AiConfig, type ModelCapability } from "@/stores/use-config-store";
+import { buildApiUrl, normalizeLocalProxyUrl, withLocalProxy, type AiConfig, type ModelCapability } from "@/stores/use-config-store";
 
 type RequestOptions = { signal?: AbortSignal };
 
@@ -149,7 +149,7 @@ export async function runModelPlugin<T = unknown>(args: RunPluginArgs): Promise<
             config.apiKey,
             config.systemPrompt || "",
             config.reasoningEffort,
-            config.seedance,
+            { ...config.seedance, bridgeUrl: normalizeLocalProxyUrl(config.seedance.bridgeUrl) },
             http,
             request,
             poll,

@@ -14,11 +14,19 @@ fork 到自己的 GitHub 仓库后，先创建 Docker Hub 中的公开仓库 `in
 ```bash
 git clone https://github.com/<你的 GitHub 用户名>/infinite-canvas.git
 cd infinite-canvas
+git checkout feature/volcengine-seedance
 cp .env.example .env
+# 先编辑 .env，填入自己的 Docker Hub 镜像地址
 docker compose up -d
 ```
 
-将 `.env` 的 `DOCKER_IMAGE` 改为 `<你的 Docker Hub 用户名>/infinite-canvas:latest`。没有设置该变量时，Compose 会继续使用上游公开镜像；`.env` 已被 Git 忽略，不要在其中写入或提交 API Key、Docker Token。
+将 `.env` 的 `DOCKER_IMAGE` 改为 `<你的 Docker Hub 用户名>/infinite-canvas:feature-volcengine-seedance`。当前功能分支使用这个标签，默认分支才更新 `latest`。Compose 要求显式设置镜像，不再回退到不含代理的上游镜像；`.env` 已被 Git 忽略，不要在其中写入或提交 API Key、Docker Token。
+
+同一个发布镜像包含网页和 Node.js 代理，Compose 分别启动 `app` 与 `proxy` 两个服务，只对外开放网页端口 `3000`。代理使用 Docker 内网，通过网页同域的 `/canvas-proxy/` 访问，访问设备无需另外安装 Node.js 或运行启动脚本。新浏览器配置默认开启该代理；导入原本关闭代理的配置后，如接口受 CORS 限制，请在「本地代理」中开启开关。Seedance 与魔芋的 COS 上传始终使用各自配置的 Seedance 代理地址。
+
+设置页中默认的 `127.0.0.1:23210` 地址在 Docker 网页下会自动解析为同域代理；自定义代理地址会保留。火山官方模型获取、Seedance 2.0/2.5、私域素材库、COS、草稿转正式生成与 MP4/MOV 都使用同一份本地代理代码。原有 API Key、方舟和 COS 配置仍需要在浏览器中填写或导入，不打进镜像。
+
+代理上传不新增文件大小限制；上游供应商的限制仍然适用。Nginx 代理读写等待时间为 1 小时（两次读写之间的空闲时间），超过后请求会失败，已提交的官方任务不会因此取消。SSE 流式响应不缓冲。服务器部署需使用 HTTPS，并用反向代理认证或私有网络限制访问；代理支持任意目标 URL，不能作为匿名公共转发服务。
 
 启动后访问：
 
@@ -40,7 +48,18 @@ docker compose -f docker-compose.local.yml up -d --build
 
 1. 在 **Variables** 新建 `DOCKERHUB_USERNAME`，值为你的 Docker Hub 用户名。
 2. 在 **Secrets** 新建 `DOCKERHUB_TOKEN`，值为 Docker Hub 创建的访问令牌，权限选择 Read & Write。
-3. 之后推送 `web/`、Dockerfile 或文档相关改动，分别触发主应用和文档镜像工作流；也可在 Actions 页面手动运行。
+3. 在 Actions 页面启用 fork 工作流。之后推送 `web/`、`canvas-proxy/`、Dockerfile、Nginx 或 Compose 改动，会触发主应用构建；文档改动触发文档镜像构建。也可手动运行并选择功能分支。
+
+主应用发布前会构建镜像并运行 Compose 验证网页、运行期代理配置、Seedance 路由、签名 URL、大请求体与 SSE，验证通过才允许推送多架构镜像。未设置 Docker Hub 用户名时仍执行主应用验证，跳过发布；用户名设置后必须同时配置 Token。
+
+代码推送自动构建并发布镜像，不自动登录部署服务器。服务器更新执行：
+
+```bash
+docker compose pull
+docker compose up -d --wait
+```
+
+首次排查使用 `docker compose ps` 和 `docker compose logs app proxy`。停止服务使用 `docker compose down`。
 
 工作流只读取这两个 GitHub Actions 配置，不会读取浏览器本地 API 配置，也不会把 Token 写入仓库。
 
@@ -52,7 +71,7 @@ docker compose -f docker-compose.local.yml up -d --build
 
 ```bash
 cd docs
-docker compose up -d
+docker compose --env-file ../.env up -d
 ```
 
 首次使用前仍在仓库根目录执行 `cp .env.example .env`，并把其中的 `DOCS_DOCKER_IMAGE` 改为你的 Docker Hub 文档镜像。
@@ -66,7 +85,7 @@ docker compose -f docker-compose.local.yml up -d --build
 
 ## 数据说明
 
-当前主应用镜像只启动 Next.js。画布、我的素材、生成记录和 AI API Key 默认保存在浏览器本地；第三方提示词由浏览器前端直连拉取，不需要额外挂载数据目录。
+主应用是 Nginx 静态前端与 Node.js 请求代理。画布、我的素材、生成记录和 AI API Key 默认保存在访问设备的浏览器本地；代理仅处理请求与内存缓存，不持久化 API Key 或本地素材，不需要数据卷。浏览器配置中的方舟/COS 凭据会发送给你部署的代理处理请求，务必只连接自己信任的服务器。更新容器不会迁移浏览器数据；切换域名、端口、浏览器或设备需要导出导入，或使用已有 WebDAV 同步。远程非 localhost 部署建议使用 HTTPS，以满足浏览器剪贴板等安全上下文功能。
 
 ## 统计分析（可选）
 
@@ -92,14 +111,7 @@ services:
       ANALYTICS_BAIDU_ID: e8263761cc5c32f5f7a855b8203b965a
 ```
 
-或使用 `docker run`：
-
-```bash
-docker run -d -p 3000:3000 \
-  -e ANALYTICS_GA4_ID=G-XXXXXXXXXX \
-  -e ANALYTICS_BAIDU_ID=e8263761cc5c32f5f7a855b8203b965a \
-  <你的 Docker Hub 用户名>/infinite-canvas:latest
-```
+完整应用需要同时运行代理，请使用上面的 Compose 命令。
 
 单页应用的路由切换会自动向所有已启用的统计上报 pageview。
 

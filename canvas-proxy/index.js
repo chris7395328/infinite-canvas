@@ -71,7 +71,8 @@ function sendJson(res, status, payload) {
 }
 
 function logForward(method, target, outcome, startedAt) {
-    console.log(`${new Date().toLocaleTimeString()} ${method} ${target} -> ${outcome} ${((Date.now() - startedAt) / 1000).toFixed(1)}s`);
+    const url = new URL(target);
+    console.log(`${new Date().toLocaleTimeString()} ${method} ${url.origin}${url.pathname} -> ${outcome} ${((Date.now() - startedAt) / 1000).toFixed(1)}s`);
 }
 
 const ARK_BASE_URL = "https://ark.cn-beijing.volces.com/api/v3";

@@ -13,3 +13,5 @@ web/out
 .env*
 !.env.example
 infinite-canvas-config.json
+.runtime
+canvas-proxy/node_modules

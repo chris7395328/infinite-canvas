@@ -5,6 +5,7 @@ import { useTranslation } from "react-i18next";
 
 import { useCopyText } from "@/hooks/use-copy-text";
 import { testLocalProxy } from "@/services/api/local-proxy";
+import { DEPLOYED_PROXY_URL } from "@/constant/runtime-config";
 import { DEFAULT_LOCAL_PROXY_URL, LOCAL_PROXY_PACKAGE, normalizeLocalProxyUrl, useConfigStore } from "@/stores/use-config-store";
 
 export function ConfigLocalProxy() {
@@ -42,13 +43,13 @@ export function ConfigLocalProxy() {
                 </div>
                 {config.proxyEnabled ? (
                     <>
-                        <div className="mt-3 rounded-md bg-stone-100 px-3 py-2 dark:bg-stone-900">
+                        {DEPLOYED_PROXY_URL ? <div className="mt-3 text-xs text-stone-500">Docker 已启动同域代理，无需在访问设备上运行启动命令。</div> : <div className="mt-3 rounded-md bg-stone-100 px-3 py-2 dark:bg-stone-900">
                             <div className="mb-1 text-xs text-stone-500">{t("config.proxy.startHint")}</div>
                             <div className="flex items-center justify-between gap-3">
                                 <code className="min-w-0 truncate text-xs">{command}</code>
                                 <Button size="small" type="text" icon={<Copy className="size-3.5" />} onClick={() => copyText(command)} />
                             </div>
-                        </div>
+                        </div>}
                         <Form.Item label={t("config.proxy.address")} extra={t("config.proxy.addressDescription")} className="mt-3 mb-0">
                             <Input
                                 value={config.proxyUrl}

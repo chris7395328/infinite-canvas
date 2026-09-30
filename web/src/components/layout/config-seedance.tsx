@@ -19,9 +19,9 @@ export function ConfigSeedance({ onAddModels }: { onAddModels: () => void }) {
                     </div>
                     <Button type="primary" icon={<Plus className="size-4" />} onClick={onAddModels}>添加官方 Seedance 模型</Button>
                 </div>
-                <Alert className="mb-4" type="warning" showIcon message="敏感凭据只应在本机使用" description="方舟 AK/SK、COS Secret 会保存到此浏览器的本地配置，并仅发送给 127.0.0.1 的 bridge。不要把画布或 bridge 暴露到不可信网络。" />
+                <Alert className="mb-4" type="warning" showIcon message="仅连接你信任的代理" description="方舟 AK/SK、COS Secret 保存在浏览器本地，并会发送给配置的代理处理上传与生成。Docker 使用同域代理；服务器部署请使用 HTTPS，并通过反向代理登录或私有网络限制访问。" />
                 <div className="grid gap-4 md:grid-cols-2">
-                    <Form.Item label="本地 bridge 地址" extra="运行 canvas-proxy 后的地址，默认 23210。" className="mb-0"><Input value={seedance.bridgeUrl} onChange={(event) => update("bridgeUrl", event.target.value)} /></Form.Item>
+                    <Form.Item label="Seedance 代理地址" extra="Docker 自动使用当前网站的 /canvas-proxy；本机默认 127.0.0.1:23210。" className="mb-0"><Input value={seedance.bridgeUrl} onChange={(event) => update("bridgeUrl", event.target.value)} /></Form.Item>
                     <Form.Item label="方舟项目名称" extra="私域素材库所使用的 ProjectName。" className="mb-0"><Input value={seedance.projectName} onChange={(event) => update("projectName", event.target.value)} placeholder="项目名称" /></Form.Item>
                     <Form.Item label="方舟 Access Key ID" className="mb-0"><Input.Password value={seedance.accessKeyId} onChange={(event) => update("accessKeyId", event.target.value)} /></Form.Item>
                     <Form.Item label="方舟 Secret Access Key" className="mb-0"><Input.Password value={seedance.secretAccessKey} onChange={(event) => update("secretAccessKey", event.target.value)} /></Form.Item>

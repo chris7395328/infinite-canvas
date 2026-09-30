@@ -137,13 +137,15 @@ bun run dev
 ```bash
 git clone https://github.com/<你的 GitHub 用户名>/infinite-canvas.git
 cd infinite-canvas
+git checkout feature/volcengine-seedance
 cp .env.example .env
+# 先将 .env 的 DOCKER_IMAGE 改为你的 Docker Hub 镜像地址
 docker compose up -d
 ```
 
 运行后默认端口3000，可访问 `http://localhost:3000`。
 
-fork 后使用 Docker Hub 镜像时，将 `.env` 中的 `DOCKER_IMAGE` 改为 `<你的 Docker Hub 用户名>/infinite-canvas:latest`；`.env` 已被忽略，不要提交 API Key、Docker Token 或其他凭据。
+当前功能分支使用 `<你的 Docker Hub 用户名>/infinite-canvas:feature-volcengine-seedance`。Compose 同时启动网页与 Seedance/COS/通用代理，访问设备无需另运行 bridge；新配置默认使用同域代理。默认分支构建才发布 `latest`。`.env` 已被忽略，不要提交 API Key、Docker Token 或其他凭据。完整设置与更新步骤见 [Docker 部署](docs/content/docs/overview/docker.zh-CN.mdx)。
 
 首次打开后进入右上角配置，填入自己的 OpenAI 兼容 `Base URL` 和 `API Key`。
 

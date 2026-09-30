@@ -7,6 +7,10 @@ on:
     paths:
       - "Dockerfile"
       - "nginx.conf"
+      - "canvas-proxy/**"
+      - "docker-compose*.yml"
+      - ".dockerignore"
+      - ".github/scripts/docker-smoke.mjs"
       - "VERSION"
       - "web/**"
       - ".github/workflows/docker-image.yml"
@@ -19,7 +23,32 @@ env:
   IMAGE_NAME: ${{ vars.DOCKERHUB_USERNAME }}/infinite-canvas
 
 jobs:
+  verify:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: docker/setup-buildx-action@v3
+      - uses: docker/build-push-action@v6
+        with:
+          context: .
+          load: true
+          tags: infinite-canvas:smoke
+          cache-from: type=gha,scope=app-amd64
+          cache-to: type=gha,mode=max,scope=app-amd64
+      - name: Verify full Compose deployment
+        env:
+          DOCKER_IMAGE: infinite-canvas:smoke
+        run: |
+          docker compose up -d --wait
+          node .github/scripts/docker-smoke.mjs
+      - name: Clean up test containers
+        if: always()
+        run: docker compose down
+        env:
+          DOCKER_IMAGE: infinite-canvas:smoke
   meta:
+    needs: verify
+    if: vars.DOCKERHUB_USERNAME != ''
     runs-on: ubuntu-latest
     outputs:
       tags: ${{ steps.meta.outputs.tags }}

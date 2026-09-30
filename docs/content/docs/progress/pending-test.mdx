@@ -5,6 +5,8 @@ description: Implemented changes that still need manual verification
 
 # Pending Tests
 
+- Full Docker deployment: both Compose files should start app/proxy while publishing only port 3000. Browsers must use same-origin `/canvas-proxy`, including imported default localhost bridge addresses. Verify official model listing, Seedance 2.0/2.5, COS/private assets, draft-to-1080p final, MOV downloads, Moyu references, Gemini Omni, generic SSE forwarding and WebDAV. Proxy read/send idle timeouts are one hour; credentials are not persisted in containers. Use HTTPS and access restrictions. Actions must pass Compose smoke verification before publishing amd64/arm64 images; without a Docker Hub username, only verification runs. Actual provider generation and server deployment still require acceptance with the user's own accounts.
+
 The current release needs manual verification in these areas:
 
 - Personal Docker Hub publishing: after setting the `DOCKERHUB_USERNAME` Actions variable and `DOCKERHUB_TOKEN` Actions secret in a fork, pushes affecting `web/`, Docker files, or docs must respectively build and push `<username>/infinite-canvas` and `<username>/infinite-canvas-docs`; the default branch updates `latest`, while other branches retain branch and SHA tags. Root `.env` overrides for `DOCKER_IMAGE` / `DOCS_DOCKER_IMAGE` must be honored by Compose, and `.env`, browser-local API configuration, and Docker tokens must never enter Git history or the image build context.

@@ -16,6 +16,7 @@ BAIDU_ID=$(sanitize_id "${ANALYTICS_BAIDU_ID:-}")
 
 cat > /usr/share/nginx/html/config.js <<EOF
 window.__RUNTIME_CONFIG__ = {
+  CANVAS_PROXY_PATH: "/canvas-proxy",
   ANALYTICS_GA4_ID: "${GA4_ID}",
   ANALYTICS_BAIDU_ID: "${BAIDU_ID}"
 };

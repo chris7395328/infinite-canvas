@@ -1,11 +1,23 @@
 services:
   app:
-    image: ${DOCKER_IMAGE:-ghcr.io/basketikun/infinite-canvas:latest}
+    image: ${DOCKER_IMAGE:?请在 .env 中设置你的完整 Docker Hub 镜像地址}
     container_name: infinite-canvas
     ports:
       - "3000:3000"
     restart: unless-stopped
+    depends_on:
+      proxy:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "wget", "-q", "-O", "/dev/null", "http://127.0.0.1:3000/config.js"]
     # 统计分析（可选，默认关闭）。每家一个独立变量，填了谁就启用谁，可同时启用多家：
     # environment:
     #   ANALYTICS_GA4_ID: G-XXXXXXXXXX                    # Google Analytics 4 衡量 ID
     #   ANALYTICS_BAIDU_ID: xxxxxxxxxxxxxxxxxxxxxxxxxxxx   # 百度统计站点 ID
+  proxy:
+    image: ${DOCKER_IMAGE:?请在 .env 中设置你的完整 Docker Hub 镜像地址}
+    entrypoint: ["node", "/opt/canvas-proxy/index.js"]
+    command: ["--host", "0.0.0.0", "--port", "23210"]
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "node", "-e", "fetch('http://127.0.0.1:23210/').then(async r => { if (!r.ok || !(await r.json()).proxy) process.exit(1); }).catch(() => process.exit(1))"]

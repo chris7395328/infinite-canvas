@@ -919,15 +919,16 @@ export async function fetchImageModels(config: Pick<AiConfig, "baseUrl" | "apiKe
             .filter((id): id is string => Boolean(id))
             .sort((a, b) => a.localeCompare(b));
     } catch (error) {
-        if (config.apiFormat === "volcengine" && axios.isAxiosError(error) && !error.response) throw new Error("无法连接本机 Seedance bridge。请运行启动脚本并确认 127.0.0.1:23210 可访问。");
+        if (config.apiFormat === "volcengine" && axios.isAxiosError(error) && !error.response) throw new Error("无法连接 Seedance 代理。Docker 部署请确认 proxy 服务运行，本机使用请运行一键启动脚本。");
         throw new Error(readAxiosError(error, apiText("modelReadFailed")));
     }
 }
 
 function modelListUrl(config: Pick<AiConfig, "baseUrl" | "apiFormat">) {
     const url = buildApiUrl(config.baseUrl, "/models");
-    if (config.apiFormat !== "volcengine" || url.startsWith("http://127.0.0.1:23210/")) return url;
+    if (config.apiFormat !== "volcengine") return url;
     const bridgeUrl = normalizeLocalProxyUrl(useConfigStore.getState().config.seedance.bridgeUrl);
+    if (bridgeUrl && url.startsWith(`${bridgeUrl}/`)) return url;
     return bridgeUrl ? `${bridgeUrl}/${url}` : url;
 }
 

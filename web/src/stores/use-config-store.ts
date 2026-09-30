@@ -4,6 +4,7 @@ import { persist } from "zustand/middleware";
 import { nanoid } from "nanoid";
 
 import i18n from "@/i18n";
+import { DEPLOYED_PROXY_URL } from "@/constant/runtime-config";
 import { normalizeImageQualityForModel } from "@/lib/image-quality";
 
 export type ApiCallFormat = "openai" | "gemini" | "volcengine";
@@ -101,7 +102,7 @@ const CHANNEL_MODEL_SEPARATOR = "::";
 const OPENAI_BASE_URL = "https://api.openai.com";
 const GEMINI_BASE_URL = "https://generativelanguage.googleapis.com";
 export const LOCAL_PROXY_PACKAGE = "@basketikun/canvas-proxy";
-export const DEFAULT_LOCAL_PROXY_URL = "http://127.0.0.1:23210";
+export const DEFAULT_LOCAL_PROXY_URL = DEPLOYED_PROXY_URL || "http://127.0.0.1:23210";
 
 export const defaultSeedanceConfig: SeedanceConfig = {
     bridgeUrl: DEFAULT_LOCAL_PROXY_URL,
@@ -129,7 +130,7 @@ function normalizeSeedanceConfig(value: Partial<SeedanceConfig> | undefined): Se
     const config = { ...defaultSeedanceConfig, ...value };
     return {
         ...config,
-        bridgeUrl: config.bridgeUrl.trim() || DEFAULT_LOCAL_PROXY_URL,
+        bridgeUrl: normalizeLocalProxyUrl(config.bridgeUrl) || DEFAULT_LOCAL_PROXY_URL,
         taskType: ["reference", "auto", "extend", "edit"].includes(config.taskType) ? config.taskType : "reference",
         outputFormat: config.outputFormat === "mov" ? "mov" : "mp4",
         seed: String(config.seed || "-1"),
@@ -179,7 +180,7 @@ export const defaultConfig: AiConfig = {
     background: "",
     count: "1",
     canvasImageCount: "3",
-    proxyEnabled: false,
+    proxyEnabled: Boolean(DEPLOYED_PROXY_URL),
     proxyUrl: DEFAULT_LOCAL_PROXY_URL,
 };
 
@@ -332,7 +333,7 @@ export const useConfigStore = create<ConfigStore>()(
                         videoMode: config.videoMode === "reference" ? "reference" : "frames",
                         canvasImageCount: config.canvasImageCount || "3",
                         proxyEnabled: Boolean(config.proxyEnabled),
-                        proxyUrl: config.proxyUrl || DEFAULT_LOCAL_PROXY_URL,
+                        proxyUrl: normalizeLocalProxyUrl(config.proxyUrl) || DEFAULT_LOCAL_PROXY_URL,
                     },
                 };
             },
@@ -556,6 +557,8 @@ export function buildApiUrl(baseUrl: string, path: string) {
 export function normalizeLocalProxyUrl(value: string) {
     const trimmed = value.trim().replace(/\/+$/, "");
     if (!trimmed) return "";
+    if (DEPLOYED_PROXY_URL && /^(?:https?:\/\/)?(?:127\.0\.0\.1|localhost):23210$/i.test(trimmed)) return DEPLOYED_PROXY_URL;
+    if (trimmed.startsWith("/") && !trimmed.startsWith("//") && typeof window !== "undefined") return new URL(trimmed, window.location.origin).href.replace(/\/+$/, "");
     return /^https?:\/\//i.test(trimmed) ? trimmed : `http://${trimmed}`;
 }
 

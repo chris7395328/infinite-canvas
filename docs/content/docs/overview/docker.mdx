@@ -12,11 +12,19 @@ After forking to your own GitHub repository, create a public Docker Hub reposito
 ```bash
 git clone https://github.com/<your-github-username>/infinite-canvas.git
 cd infinite-canvas
+git checkout feature/volcengine-seedance
 cp .env.example .env
+# Edit DOCKER_IMAGE in .env before starting.
 docker compose up -d
 ```
 
-Set `DOCKER_IMAGE` in `.env` to `<your-dockerhub-username>/infinite-canvas:latest`. Without it, Compose continues to use the upstream public image. `.env` is Git-ignored: never put API keys or Docker tokens in a committed file.
+Set `DOCKER_IMAGE` in `.env` to `<your-dockerhub-username>/infinite-canvas:feature-volcengine-seedance`. Only default-branch builds publish `latest`. Compose requires an explicit image rather than falling back to the upstream frontend-only image. `.env` is Git-ignored: never commit API keys or Docker tokens.
+
+The image includes Nginx and the Node.js proxy. Compose starts separate `app` and `proxy` services and publishes only port 3000; browsers reach the proxy at the same-origin `/canvas-proxy/` path. Visiting devices do not need a local bridge. New browser configurations enable the proxy by default; if you import a configuration with the proxy disabled, enable it for APIs that require CORS forwarding. Seedance and Moyu COS uploads use the configured Seedance bridge regardless of the general-proxy switch.
+
+Default localhost bridge addresses resolve to the deployed proxy in Docker; custom proxy addresses are preserved. Model listing, Seedance 2.0/2.5, COS, private assets, draft-to-final generation and MP4/MOV use the same proxy implementation as the local launcher. Enter or import your provider settings in the browser; they are not embedded in the image.
+
+Nginx does not introduce an upload-size cap. Proxy read/send idle timeouts are one hour; expiration fails the browser request without cancelling an upstream task. SSE is unbuffered. Use HTTPS and restrict access using reverse-proxy authentication or a private network: this proxy accepts arbitrary destination URLs and must not be an anonymous public relay.
 
 Open `http://localhost:3000`.
 
@@ -32,7 +40,18 @@ The two Docker workflows build multi-architecture images when their related sour
 
 1. Add a `DOCKERHUB_USERNAME` Actions variable with your Docker Hub username.
 2. Add a `DOCKERHUB_TOKEN` Actions secret containing a Docker Hub Read & Write access token.
-3. Push changes under `web/`, Docker files, or `docs/` to trigger the respective application or documentation workflow, or start either workflow manually from Actions.
+3. Enable workflows in the fork's Actions page. Push changes under `web/`, `canvas-proxy/`, Docker, Nginx or Compose files to build the application; documentation changes build the documentation image. Manual runs can select the feature branch.
+
+Before publishing, the application workflow builds an image and verifies the full Compose deployment, including frontend, runtime configuration, Seedance route, signed URLs, large request bodies and SSE. Without a Docker Hub username it verifies but skips publishing; a configured username also requires the token.
+
+Publishing an image does not update your server automatically. Update the deployment with:
+
+```bash
+docker compose pull
+docker compose up -d --wait
+```
+
+Inspect services with `docker compose ps` and `docker compose logs app proxy`; stop with `docker compose down`.
 
 The workflows read only these two GitHub Actions settings. They do not read browser-local API configuration or commit the token.
 
@@ -42,7 +61,7 @@ The documentation in `docs/` is a separate Next.js standalone application with s
 
 ```bash
 cd docs
-docker compose up -d
+docker compose --env-file ../.env up -d
 ```
 
 For first use, run `cp .env.example .env` from the repository root and set `DOCS_DOCKER_IMAGE` to your documentation image.
@@ -54,7 +73,7 @@ cd docs
 docker compose -f docker-compose.local.yml up -d --build
 ```
 
-The main application container only runs Next.js. Canvases, My Assets, generation history, and API keys are stored in the browser by default, while prompt repositories are fetched directly by the frontend. No persistent data volume is required for this data.
+The main application uses Nginx for the static frontend and Node.js for forwarding. Canvases, assets, generation history and credentials remain in the visiting browser. The proxy handles requests and in-memory caches without persisting API keys or local assets; no data volume is required. Ark/COS credentials are sent to the configured proxy, so only use a trusted server. Updating containers does not migrate browser data: changing origin or device requires export/import or the existing WebDAV synchronization. Use HTTPS on remote deployments for clipboard and other secure-context browser features.
 
 ## Optional analytics
 
