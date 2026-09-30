@@ -23,7 +23,7 @@ import { fitNodeSize, nodeSizeFromRatio } from "@/lib/canvas/canvas-node-size";
 import { captureVideoFrame, type VideoFramePosition } from "@/lib/canvas/canvas-video-frame";
 import { App, Button, Modal } from "antd";
 import { NODE_DEFAULT_SIZE, getNodeSpec } from "@/constant/canvas";
-import { ActiveConnectionPath, ConnectionPath } from "@/components/canvas/canvas-connections";
+import { ActiveConnectionPath, ActiveSelectionConnectionPath, ConnectionPath } from "@/components/canvas/canvas-connections";
 import { CanvasConfigComposer } from "@/components/canvas/canvas-config-composer";
 import { CanvasConfigNodePanel } from "@/components/canvas/canvas-config-node-panel";
 import { CanvasNodeContextMenu } from "@/components/canvas/canvas-context-menu";
@@ -609,18 +609,25 @@ function InfiniteCanvasPage() {
 
     const connectNodes = useCallback(
         (current: ConnectionHandle, targetNodeId: string) => {
-            if (current.nodeId === targetNodeId) return;
-
-            const connection = normalizeConnection(current.nodeId, targetNodeId, nodesRef.current, current.handleType);
-            if (!connection) {
+            const selectedSourceIds = current.nodeIds?.length ? current.nodeIds : [current.nodeId];
+            const candidateConnections = selectedSourceIds.flatMap((selectedNodeId) => {
+                if (selectedNodeId === targetNodeId) return [];
+                const connection = current.nodeIds?.length && current.handleType === "target"
+                    ? normalizeConnection(targetNodeId, selectedNodeId, nodesRef.current, "source")
+                    : normalizeConnection(selectedNodeId, targetNodeId, nodesRef.current, current.handleType);
+                return connection ? [connection] : [];
+            });
+            if (!candidateConnections.length) {
                 message.warning(t("canvas.projectPage.configConnection"));
                 return;
             }
-            const { fromNodeId, toNodeId } = connection;
-            const exists = connectionsRef.current.some((conn) => conn.fromNodeId === fromNodeId && conn.toNodeId === toNodeId);
-            if (!exists) {
-                setConnections((prev) => [...prev, { id: `conn-${Date.now()}`, fromNodeId, toNodeId }]);
-            }
+            setConnections((previous) => {
+                const existing = new Set(previous.map((connection) => `${connection.fromNodeId}:${connection.toNodeId}`));
+                const additions = candidateConnections
+                    .filter((connection) => !existing.has(`${connection.fromNodeId}:${connection.toNodeId}`))
+                    .map((connection) => ({ id: nanoid(), ...connection }));
+                return additions.length ? [...previous, ...additions] : previous;
+            });
             setContextMenu(null);
         },
         [message, t],
@@ -630,13 +637,19 @@ function InfiniteCanvasPage() {
         (type: CanvasNodeType.Image | CanvasNodeType.Text | CanvasNodeType.Config | CanvasNodeType.Video | CanvasNodeType.Audio, pending: PendingConnectionCreate) => {
             const metadata = type === CanvasNodeType.Config ? { model: effectiveConfig.imageModel || effectiveConfig.model, size: effectiveConfig.size, count: getGenerationCount(effectiveConfig.canvasImageCount || effectiveConfig.count) } : undefined;
             const newNode = createCanvasNode(type, pending.position, metadata);
-            const connection = normalizeConnection(pending.connection.nodeId, newNode.id, [...nodesRef.current, newNode], pending.connection.handleType);
-            if (!connection) {
+            const selectedSourceIds = pending.connection.nodeIds?.length ? pending.connection.nodeIds : [pending.connection.nodeId];
+            const connections = selectedSourceIds.flatMap((selectedNodeId) => {
+                const connection = pending.connection.nodeIds?.length && pending.connection.handleType === "target"
+                    ? normalizeConnection(newNode.id, selectedNodeId, [...nodesRef.current, newNode], "source")
+                    : normalizeConnection(selectedNodeId, newNode.id, [...nodesRef.current, newNode], pending.connection.handleType);
+                return connection ? [connection] : [];
+            });
+            if (!connections.length) {
                 message.warning(t("canvas.projectPage.configConnection"));
                 return;
             }
             setNodes((prev) => [...prev, newNode]);
-            setConnections((prev) => [...prev, { id: nanoid(), ...connection }]);
+            setConnections((prev) => [...prev, ...connections.map((connection) => ({ id: nanoid(), ...connection }))]);
             setSelectedNodeIds(new Set([newNode.id]));
             setSelectedConnectionId(null);
             if (type !== CanvasNodeType.Text && type !== CanvasNodeType.Audio) setDialogNodeId(newNode.id);
@@ -673,7 +686,15 @@ function InfiniteCanvasPage() {
 
                     if (!hitsHandle && !hitsInside && !hitsExpanded) return;
                     isNearNode = true;
-                    if (node.id === current.nodeId || !normalizeConnection(current.nodeId, node.id, nodesRef.current, current.handleType)) return;
+                    const selectedSourceIds = current.nodeIds?.length ? current.nodeIds : [current.nodeId];
+                    if (selectedSourceIds.includes(node.id)) return;
+                    const canConnect = selectedSourceIds.some((selectedNodeId) => {
+                        const connection = current.nodeIds?.length && current.handleType === "target"
+                            ? normalizeConnection(node.id, selectedNodeId, nodesRef.current, "source")
+                            : normalizeConnection(selectedNodeId, node.id, nodesRef.current, current.handleType);
+                        return Boolean(connection);
+                    });
+                    if (!canConnect) return;
 
                     const priority = hitsInside ? 0 : hitsHandle ? 1 : 2;
                     if (priority < bestPriority) {
@@ -1678,6 +1699,22 @@ function InfiniteCanvasPage() {
         [screenToCanvas, setConnecting],
     );
 
+    const handleSelectionConnectStart = useCallback(
+        (event: ReactMouseEvent<HTMLDivElement>, handleType: "source" | "target") => {
+            event.preventDefault();
+            event.stopPropagation();
+            const selectedNodes = collectGroupMemberNodes(selectedNodeIdsRef.current, nodesRef.current);
+            const nodeIds = selectedNodes.map((node) => node.id);
+            if (!nodeIds.length) return;
+            setMouseWorld(screenToCanvas(event.clientX, event.clientY));
+            setConnecting({ nodeId: nodeIds[0], nodeIds, handleType });
+            connectionTargetNodeIdRef.current = null;
+            setConnectionTargetNodeId(null);
+            setSelectedConnectionId(null);
+        },
+        [screenToCanvas, setConnecting],
+    );
+
     const handleNodeResize = useCallback((nodeId: string, width: number, height: number, position?: Position) => {
         setNodes((prev) => prev.map((node) => (node.id === nodeId ? { ...node, width, height, position: position || node.position } : node)));
     }, []);
@@ -1697,9 +1734,7 @@ function InfiniteCanvasPage() {
         const initialNodes = selectionResizeRef.current;
         if (!initialNodes) return;
         const startWidth = Math.max(1, start.right - start.left);
-        const startHeight = Math.max(1, start.bottom - start.top);
-        const scaleX = (next.right - next.left) / startWidth;
-        const scaleY = (next.bottom - next.top) / startHeight;
+        const scale = (next.right - next.left) / startWidth;
         setNodes((previous) =>
             previous.map((node) => {
                 const initial = initialNodes.get(node.id);
@@ -1707,11 +1742,11 @@ function InfiniteCanvasPage() {
                 return {
                     ...node,
                     position: {
-                        x: next.left + (initial.position.x - start.left) * scaleX,
-                        y: next.top + (initial.position.y - start.top) * scaleY,
+                        x: next.left + (initial.position.x - start.left) * scale,
+                        y: next.top + (initial.position.y - start.top) * scale,
                     },
-                    width: Math.max(24, initial.width * scaleX),
-                    height: Math.max(24, initial.height * scaleY),
+                    width: Math.max(24, initial.width * scale),
+                    height: Math.max(24, initial.height * scale),
                 };
             }),
         );
@@ -3306,7 +3341,14 @@ function InfiniteCanvasPage() {
                                 }}
                             />
                         ))}
-                        {connectingParams ? <ActiveConnectionPath node={nodeById.get(connectingParams.nodeId)} handle={connectingParams} mouseWorld={mouseWorld} target={connectionTargetNodeId ? nodeById.get(connectionTargetNodeId) : undefined} /> : null}
+                        {connectingParams?.nodeIds?.length ? (
+                            <ActiveSelectionConnectionPath
+                                nodes={connectingParams.nodeIds.map((nodeId) => nodeById.get(nodeId)).filter((node): node is CanvasNodeData => Boolean(node))}
+                                handle={connectingParams}
+                                mouseWorld={mouseWorld}
+                                target={connectionTargetNodeId ? nodeById.get(connectionTargetNodeId) : undefined}
+                            />
+                        ) : connectingParams ? <ActiveConnectionPath node={nodeById.get(connectingParams.nodeId)} handle={connectingParams} mouseWorld={mouseWorld} target={connectionTargetNodeId ? nodeById.get(connectionTargetNodeId) : undefined} /> : null}
                     </svg>
 
                     {visibleNodes.map((node) => (
@@ -3422,6 +3464,7 @@ function InfiniteCanvasPage() {
                         onResize={handleSelectionResize}
                         onResizeEnd={handleSelectionResizeEnd}
                         onArrange={arrangeSelectedNodes}
+                        onConnectStart={handleSelectionConnectStart}
                     />
                 ) : null}
 

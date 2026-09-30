@@ -147,6 +147,8 @@ export type CanvasAssistantSession = {
 
 export type ConnectionHandle = {
     nodeId: string;
+    // Present for a multi-selection handle. `nodeId` remains the primary node for legacy callers.
+    nodeIds?: string[];
     handleType: "source" | "target";
 };
 

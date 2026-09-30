@@ -1,4 +1,4 @@
-import { useState, type PointerEvent as ReactPointerEvent, type ReactNode } from "react";
+import { useState, type MouseEvent as ReactMouseEvent, type PointerEvent as ReactPointerEvent, type ReactNode } from "react";
 import { Columns3, Group, LayoutGrid, Ungroup } from "lucide-react";
 import { Tooltip } from "antd";
 import { useTranslation } from "react-i18next";
@@ -26,6 +26,7 @@ export function CanvasSelectionToolbar({
     onResize,
     onResizeEnd,
     onArrange,
+    onConnectStart,
 }: {
     nodes: CanvasNodeData[];
     viewport: ViewportTransform;
@@ -38,6 +39,7 @@ export function CanvasSelectionToolbar({
     onResize: (start: SelectionBounds, next: SelectionBounds) => void;
     onResizeEnd: () => void;
     onArrange: (layout: SelectionLayout) => void;
+    onConnectStart: (event: ReactMouseEvent<HTMLDivElement>, handleType: "source" | "target") => void;
 }) {
     const { t } = useTranslation();
     const theme = canvasThemes[useThemeStore((state) => state.theme)];
@@ -61,11 +63,24 @@ export function CanvasSelectionToolbar({
         const move = (moveEvent: PointerEvent) => {
             const dx = (moveEvent.clientX - startX) / viewport.k;
             const dy = (moveEvent.clientY - startY) / viewport.k;
-            let next = { ...start };
-            if (corner.includes("left")) next.left = Math.min(start.right - MIN_SELECTION_SIZE, start.left + dx);
-            if (corner.includes("right")) next.right = Math.max(start.left + MIN_SELECTION_SIZE, start.right + dx);
-            if (corner.includes("top")) next.top = Math.min(start.bottom - MIN_SELECTION_SIZE, start.top + dy);
-            if (corner.includes("bottom")) next.bottom = Math.max(start.top + MIN_SELECTION_SIZE, start.bottom + dy);
+            const startWidth = Math.max(1, start.right - start.left);
+            const startHeight = Math.max(1, start.bottom - start.top);
+            const horizontalDelta = corner.includes("left") ? -dx : dx;
+            const verticalDelta = corner.includes("top") ? -dy : dy;
+            const horizontalChange = horizontalDelta / startWidth;
+            const verticalChange = verticalDelta / startHeight;
+            const scale = Math.max(
+                Math.min(1, MIN_SELECTION_SIZE / Math.min(startWidth, startHeight)),
+                1 + (Math.abs(horizontalChange) >= Math.abs(verticalChange) ? horizontalChange : verticalChange),
+            );
+            const nextWidth = startWidth * scale;
+            const nextHeight = startHeight * scale;
+            const next = {
+                left: corner.includes("left") ? start.right - nextWidth : start.left,
+                right: corner.includes("left") ? start.right : start.left + nextWidth,
+                top: corner.includes("top") ? start.bottom - nextHeight : start.top,
+                bottom: corner.includes("top") ? start.bottom : start.top + nextHeight,
+            };
             onResize(start, next);
         };
         const end = () => {
@@ -101,6 +116,8 @@ export function CanvasSelectionToolbar({
                     <SelectionResizeHandle corner="top-right" left={left + width} top={top} onPointerDown={startResize} />
                     <SelectionResizeHandle corner="bottom-left" left={left} top={top + height} onPointerDown={startResize} />
                     <SelectionResizeHandle corner="bottom-right" left={left + width} top={top + height} onPointerDown={startResize} />
+                    <SelectionConnectionHandle side="left" left={left} top={top + height / 2} onMouseDown={onConnectStart} />
+                    <SelectionConnectionHandle side="right" left={left + width} top={top + height / 2} onMouseDown={onConnectStart} />
                 </>
             ) : null}
             {showActions ? (
@@ -130,6 +147,15 @@ export function CanvasSelectionToolbar({
 function SelectionResizeHandle({ corner, left, top, onPointerDown }: { corner: ResizeCorner; left: number; top: number; onPointerDown: (event: ReactPointerEvent<HTMLButtonElement>, corner: ResizeCorner) => void }) {
     const cursor = corner === "top-left" || corner === "bottom-right" ? "cursor-nwse-resize" : "cursor-nesw-resize";
     return <button type="button" className={`absolute z-[70] size-3 -translate-x-1/2 -translate-y-1/2 rounded-sm border-2 border-stone-700 bg-white shadow-sm ${cursor}`} style={{ left, top }} onPointerDown={(event) => onPointerDown(event, corner)} aria-label="Resize selection" />;
+}
+
+function SelectionConnectionHandle({ side, left, top, onMouseDown }: { side: "left" | "right"; left: number; top: number; onMouseDown: (event: ReactMouseEvent<HTMLDivElement>, handleType: "source" | "target") => void }) {
+    const theme = canvasThemes[useThemeStore((state) => state.theme)];
+    return (
+        <div className="absolute z-[70] flex size-12 -translate-x-1/2 -translate-y-1/2 cursor-crosshair items-center justify-center" style={{ left, top }} onMouseDown={(event) => onMouseDown(event, side === "left" ? "target" : "source")}>
+            <div className="size-3 rounded-full border-2 transition-all hover:scale-125" style={{ background: theme.node.panel, borderColor: theme.node.muted }} />
+        </div>
+    );
 }
 
 function ArrangeAction({ label, icon, onClick }: { label: string; icon: ReactNode; onClick: () => void }) {
