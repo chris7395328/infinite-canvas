@@ -138,6 +138,8 @@ export default {
         viewPrompts: "Browse prompts",
         viewAssets: "Browse My Assets",
         clipboard: "Clipboard",
+        clipboardUnavailable: "Clipboard button access is unavailable here. Press Ctrl+V (⌘V on Mac) on this page to paste images.",
+        clipboardReadFailed: "Could not read or import clipboard media. Try Ctrl+V, or upload the file.",
         upload: "Upload",
         adjust: "Adjust",
         generate: "Generate",

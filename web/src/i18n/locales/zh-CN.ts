@@ -138,6 +138,8 @@ export default {
         viewPrompts: "查看提示词库",
         viewAssets: "查看我的资产",
         clipboard: "剪切板",
+        clipboardUnavailable: "当前访问方式不支持按钮读取剪贴板，请在页面按 Ctrl+V（Mac 使用 ⌘V）粘贴图片。",
+        clipboardReadFailed: "读取或导入剪贴板素材失败，请尝试 Ctrl+V 粘贴，或使用文件上传。",
         upload: "上传",
         adjust: "调整",
         generate: "开始生成",
