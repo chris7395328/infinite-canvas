@@ -1,15 +1,10 @@
 export type IndexedDbStoreUsage = { name: string; records: number; bytes: number };
 export type IndexedDbDatabaseUsage = { name: string; version: number; bytes: number; stores: IndexedDbStoreUsage[] };
-export type LocalStorageUsage = { usage: number | null; quota: number | null; contentBytes: number; databases: IndexedDbDatabaseUsage[] };
+export type LocalStorageUsage = { usage: number; quota: number; contentBytes: number; databases: IndexedDbDatabaseUsage[] };
 
 export async function readLocalStorageUsage(): Promise<LocalStorageUsage> {
-    const [estimate, database] = await Promise.all([readOriginEstimate(), readDatabaseUsage("infinite-canvas")]);
-    return { usage: estimate?.usage ?? null, quota: estimate?.quota ?? null, contentBytes: database.bytes, databases: [database] };
-}
-
-async function readOriginEstimate() {
-    try { return await navigator.storage?.estimate?.(); }
-    catch { return undefined; }
+    const [estimate, database] = await Promise.all([navigator.storage.estimate(), readDatabaseUsage("infinite-canvas")]);
+    return { usage: estimate.usage!, quota: estimate.quota!, contentBytes: database.bytes, databases: [database] };
 }
 
 function readDatabaseUsage(name: string) {
