@@ -2,6 +2,8 @@
 
 ## Unreleased
 
++ [修复] 群晖等远程 HTTP 部署缺少浏览器容量统计接口时，本地存储页仍显示 IndexedDB 内容统计并允许清理历史，不再整页报错或将未知配额显示为零。
+
 + [新增] Docker Compose 一键启动前端与 Seedance/COS/通用代理，自动使用同域代理地址；Docker Hub 发布前验证完整部署，并覆盖代理代码变更触发构建。
 
 + [调整] Docker Compose 支持通过本地 `.env` 覆盖主应用与文档镜像；Docker 工作流改为向 fork 自己配置的 Docker Hub 账号发布多架构镜像，默认分支同步 `latest`。

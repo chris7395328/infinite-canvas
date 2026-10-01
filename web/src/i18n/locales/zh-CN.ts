@@ -401,6 +401,8 @@ export default {
             siteUsage: "站点总占用",
             quota: "可用配额",
             contentEstimate: "按仓库内容估算",
+            unavailable: "无法获取",
+            estimateUnavailable: "当前浏览器或访问方式未提供站点容量统计（HTTP 访问时可能受限）。下方仍可查看 IndexedDB 内容统计并清理历史文件；使用 HTTPS 可启用受支持浏览器的容量统计。",
             siteUsageHint: "包含 IndexedDB 等站点数据",
             quotaHint: "由浏览器动态分配",
             quotaProgress: "站点配额使用率",

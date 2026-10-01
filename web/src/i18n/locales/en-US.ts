@@ -401,6 +401,8 @@ export default {
             siteUsage: "Total site usage",
             quota: "Available quota",
             contentEstimate: "Estimated from stored content",
+            unavailable: "Unavailable",
+            estimateUnavailable: "Site capacity statistics are unavailable in this browser or context (HTTP access may restrict them). IndexedDB content statistics and history cleanup remain available. HTTPS enables capacity statistics in supported browsers.",
             siteUsageHint: "Includes IndexedDB and other site data",
             quotaHint: "Allocated dynamically by the browser",
             quotaProgress: "Site quota usage",

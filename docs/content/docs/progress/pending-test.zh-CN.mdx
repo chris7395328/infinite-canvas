@@ -5,6 +5,8 @@ description: 当前版本已实现但仍需人工验证的变更项
 
 # 待测试
 
+- HTTP 本地存储统计：通过群晖 IP 的 HTTP 地址访问，浏览器没有 `navigator.storage` 或容量统计调用失败时，页面应显示容量统计不可用提示、真实 IndexedDB 内容大小与记录列表，站点占用/配额显示「无法获取」且隐藏比例进度；刷新和历史清理后仍正常读取数据。HTTPS/localhost 支持统计时应继续显示浏览器容量数据；此变更不清除或迁移已有画布和素材。
+
 - 完整 Docker 部署：发布镜像与本地构建的 Compose 都应启动 app/proxy，仅开放 3000；浏览器自动使用同域 `/canvas-proxy`，导入默认本机代理地址后也不应请求访问设备的 localhost。验证官方模型获取、Seedance 2.0/2.5、COS 私域素材上传、草稿转 1080p 正式、MOV 下载、魔芋参考素材、Gemini Omni、通用代理 SSE 与 WebDAV。代理读写空闲超时为 1 小时，凭据不持久化到容器；部署需 HTTPS 和访问限制。GitHub Actions 应先通过 Compose 冒烟验证，再发布 amd64/arm64 镜像；未配置 Docker Hub 用户名时仅验证。真实模型生成与服务器部署仍需使用用户自己的账号验收。
 
 - 个人 Docker Hub 发布：fork 中设置 `DOCKERHUB_USERNAME` Actions Variable 与 `DOCKERHUB_TOKEN` Actions Secret 后，推送 `web/`、Dockerfile 或文档相关文件应分别构建并推送到 `<用户名>/infinite-canvas` 与 `<用户名>/infinite-canvas-docs`；默认分支更新 `latest`，其他分支保留分支名和 SHA 标签。根目录 `.env` 的 `DOCKER_IMAGE` / `DOCS_DOCKER_IMAGE` 覆盖必须被 Compose 使用，且 `.env`、浏览器本地 API 配置与 Docker Token 均不得进入 Git 历史或镜像构建上下文。
