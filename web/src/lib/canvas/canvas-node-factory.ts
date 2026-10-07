@@ -1,5 +1,6 @@
 import { getNodeSpec, NODE_DEFAULT_SIZE } from "@/constant/canvas";
 import { nodeSizeFromRatio } from "@/lib/canvas/canvas-node-size";
+import { geminiImageCapabilities, normalizeGeminiImageSettings } from "@/lib/gemini-image";
 import type { AiConfig } from "@/stores/use-config-store";
 import type { UploadedImage } from "@/services/image-storage";
 import type { UploadedFile } from "@/services/file-storage";
@@ -46,6 +47,7 @@ export function buildImageGenerationMetadata(type: CanvasImageGenerationType, co
         model: config.model,
         size: config.size,
         quality: config.quality,
+        ...(geminiImageCapabilities(config.model) ? normalizeGeminiImageSettings(config.model, config) : {}),
         ...(config.background ? { background: config.background } : {}),
         count,
         references: references.map(referenceUrl).filter((url): url is string => Boolean(url)),

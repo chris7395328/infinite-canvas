@@ -50,6 +50,7 @@ import { usePluginHost } from "@/pages/canvas/hooks/use-plugin-host";
 import { buildNodeMentionReferences, getGroupResourceNodes, isCanvasReferenceNode, type CanvasResourceReference } from "@/lib/canvas/canvas-resource-references";
 import { exportCanvasProjects } from "@/lib/canvas/canvas-export";
 import { applyNodeConfigPatch, audioMetadata, buildAudioGenerationMetadata, buildImageGenerationMetadata, createCanvasNode, imageMetadata, videoMetadata } from "@/lib/canvas/canvas-node-factory";
+import { geminiImageCapabilities, normalizeGeminiImageSettings } from "@/lib/gemini-image";
 import { applyGroupSelection, applyUngroupSelection, canGroupSelectedNodes, canUngroupSelectedNodes, collectGroupMemberNodes, findContainingGroupId, findGroupDropTarget, getConnectionTargetAnchor, getGroupWrapRect, nodeBounds, normalizeConnection, snapNodesIntoGroup } from "@/lib/canvas/canvas-node-geometry";
 import {
     audioExtension,
@@ -1874,6 +1875,9 @@ function InfiniteCanvasPage() {
                 model: node.metadata?.model,
                 size: node.metadata?.size,
                 quality: node.metadata?.quality,
+                geminiImageSize: node.metadata?.geminiImageSize,
+                geminiAspectRatio: node.metadata?.geminiAspectRatio,
+                geminiThinkingLevel: node.metadata?.geminiThinkingLevel,
                 background: node.metadata?.background,
                 references: node.metadata?.references,
             },
@@ -2918,6 +2922,9 @@ function InfiniteCanvasPage() {
                           ...effectiveConfig,
                           model: savedImageMetadata.model || effectiveConfig.imageModel || effectiveConfig.model,
                           quality: savedImageMetadata.quality || effectiveConfig.quality,
+                          geminiImageSize: savedImageMetadata.geminiImageSize ?? effectiveConfig.geminiImageSize,
+                          geminiAspectRatio: savedImageMetadata.geminiAspectRatio ?? effectiveConfig.geminiAspectRatio,
+                          geminiThinkingLevel: savedImageMetadata.geminiThinkingLevel ?? effectiveConfig.geminiThinkingLevel,
                           size: savedImageMetadata.size || effectiveConfig.size,
                           background: savedImageMetadata.background ?? effectiveConfig.background,
                           count: "1",
@@ -3003,6 +3010,10 @@ function InfiniteCanvasPage() {
                           model: generationConfig.model,
                           size: generationConfig.size,
                           quality: generationConfig.quality,
+                          geminiImageSize: generationConfig.geminiImageSize,
+                          geminiAspectRatio: generationConfig.geminiAspectRatio,
+                          geminiThinkingLevel: generationConfig.geminiThinkingLevel,
+                          ...(geminiImageCapabilities(generationConfig.model) ? normalizeGeminiImageSettings(generationConfig.model, generationConfig) : {}),
                           ...(generationConfig.background ? { background: generationConfig.background } : {}),
                           count: savedImageMetadata.count || 1,
                           references: savedImageMetadata.references,

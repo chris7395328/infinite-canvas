@@ -29,6 +29,7 @@ export default {
         imageReadFailed: "读取图片失败",
     },
     settingsPanels: {
+        geminiImage: { hint: "Gemini 专用参数：分辨率与思考强度独立设置，不使用 GPT 质量档或像素尺寸。自动比例由模型结合参考图决定；官方渠道请选择 Gemini 接口格式。", resolution: "输出分辨率", aspectRatio: "输出比例", thinking: "思考强度（自动使用模型默认）", minimal: "最少", medium: "中", high: "高", formatRequired: "Gemini 生图请将渠道接口格式设为 Gemini；仅提供 OpenAI 兼容接口的中转渠道需按其文档配置自定义调用脚本（使用 params.generationConfig）。" },
         common: { auto: "自动", low: "低", medium: "中", high: "高", xhigh: "极高", max: "最高" },
         image: { title: "图像设置", quality: "质量", size: "尺寸", align16: "16 倍数对齐", align16Hint: "输入完成后自动向上补成 16 的倍数", resolution: "分辨率", aspectRatio: "宽高比", transparent: "透明背景", transparentHint: "开启后生成无背景的透明图像（仅部分模型可用）", count: "生成张数", images: "{{count}} 张" },
         video: { title: "视频设置", quality: "清晰度", size: "尺寸", seconds: "秒数", mode: "模式", modes: { frames: "首尾帧模式", reference: "全能参考模式" }, resolution: "分辨率", ratio: "比例", duration: "时长", smart: "智能", output: "输出", generateAudio: "生成声音", watermark: "添加水印", adaptive: "自适应", sizes: { landscape: "横屏", portrait: "竖屏", square: "方形", widescreen: "宽屏", tall: "长图", auto: "自动" }, ratios: { landscape: "横屏", portrait: "竖屏", square: "方形", standardLandscape: "标准横屏", standardPortrait: "标准竖屏", cinematic: "宽银幕", adaptive: "自适应" } },

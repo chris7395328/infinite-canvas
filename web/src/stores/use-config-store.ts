@@ -75,6 +75,9 @@ export type AiConfig = {
     reasoningEffort: ReasoningEffort;
     models: string[];
     quality: string;
+    geminiImageSize?: string;
+    geminiAspectRatio?: string;
+    geminiThinkingLevel?: string;
     size: string;
     background: string;
     count: string;

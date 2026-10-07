@@ -57,6 +57,9 @@ export type CanvasNodeMetadata = {
     reasoningEffort?: "auto" | "low" | "medium" | "high" | "xhigh";
     size?: string;
     quality?: string;
+    geminiImageSize?: string;
+    geminiAspectRatio?: string;
+    geminiThinkingLevel?: string;
     background?: string;
     count?: number;
     textCount?: number;

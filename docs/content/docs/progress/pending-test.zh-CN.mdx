@@ -5,6 +5,10 @@ description: 当前版本已实现但仍需人工验证的变更项
 
 # 待测试
 
+- Gemini 生图参数：官方 Gemini 渠道拉取或手动添加 `gemini-nano-banana-2.1` 并设为生图后，画布与工作台应显示 1K/2K/4K、自动及 14 种官方比例、自动/最少/中/高思考；自动思考省略请求字段，由 2.1 默认 medium 决定。原 Nano Banana 2 (`gemini-3.1-flash-image`，含 preview) 保留 512 与 minimal/high；3/3.1 Pro Image 为 1K/2K/4K、10 种比例，无可配置思考档；Flash Lite 保守按文档说明只提供 1K、10 种比例、minimal/high；2.5 Flash Image 不发送 imageSize/thinkingConfig。切换模型时不支持的设置在 UI 和请求层分别回退到 1K/自动，不改写已保存模型 ID。
+- Gemini/GPT 隔离：Gemini 不显示 GPT 质量、任意像素尺寸、16 倍数对齐或透明背景；原质量/尺寸不再映射为 Gemini 分辨率，新独立字段缺省为 1K/自动比例/自动思考，旧节点需要重新选择想要的 Gemini 参数。原生请求使用 generationConfig.imageConfig / thinkingConfig，忽略 thought 中间图。切回 GPT 原配置保持；Gemini 误设为 OpenAI 格式且无自定义脚本时明确提示正确格式，避免静默忽略专属设置。自定义脚本参数改用 params.generationConfig/count，已保存旧脚本需按更新后的 Gemini 模板手动调整，不能覆盖用户脚本。新节点、素材副本、重试及工作台历史回放需保留参数；真实模型调用与群晖 UI 待用户验收，未使用私人 Key 或发起收费生成。
+- 官方依据：[Nano Banana 2.1](https://ai.google.dev/gemini-api/docs/models/gemini-nano-banana-2.1)、[GenerateContent 生图](https://ai.google.dev/gemini-api/docs/generate-content/image-generation)。Google 推荐新项目以 2.1 替代 Nano Banana 2，不表示旧模型即时停用；Flash Lite 的表格与正文对 512 支持存在差异，当前采用正文明确的 1K 限制。Google 搜索 grounding、多轮会话及 thought signature 回传未在本次新增。
+
 - HTTPS 回退验收：本地存储页恢复原容量统计接口；画布 Ctrl+V 恢复异步剪贴板读取与内部节点复制逻辑，图片/视频工作台恢复原剪切板按钮行为，不再提供本次新增的原生参考图粘贴。请在有效证书的 HTTPS 页面确认容量统计和图片粘贴；浏览器剪贴板权限限制仍然适用。未修改或清理既有画布、素材及 API 配置，远程 HTTP 下的兼容处理已移除。
 
 - 完整 Docker 部署：发布镜像与本地构建的 Compose 都应启动 app/proxy，仅开放 3000；浏览器自动使用同域 `/canvas-proxy`，导入默认本机代理地址后也不应请求访问设备的 localhost。验证官方模型获取、Seedance 2.0/2.5、COS 私域素材上传、草稿转 1080p 正式、MOV 下载、魔芋参考素材、Gemini Omni、通用代理 SSE 与 WebDAV。代理读写空闲超时为 1 小时，凭据不持久化到容器；部署需 HTTPS 和访问限制。GitHub Actions 应先通过 Compose 冒烟验证，再发布 amd64/arm64 镜像；未配置 Docker Hub 用户名时仅验证。真实模型生成与服务器部署仍需使用用户自己的账号验收。

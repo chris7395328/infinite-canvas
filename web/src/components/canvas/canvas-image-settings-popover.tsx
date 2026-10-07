@@ -7,6 +7,7 @@ import { useTranslation } from "react-i18next";
 import { ImageSettingsPanel, imageQualityLabel, imageSizeLabel } from "@/components/image-settings-panel";
 import { canvasThemes } from "@/lib/canvas-theme";
 import { normalizeImageQualityForModel } from "@/lib/image-quality";
+import { geminiImageCapabilities, normalizeGeminiImageSettings } from "@/lib/gemini-image";
 import { useThemeStore } from "@/stores/use-theme-store";
 import type { AiConfig } from "@/stores/use-config-store";
 
@@ -31,6 +32,8 @@ export function CanvasImageSettingsPopover({ config, onConfigChange, onOpenChang
     const quality = normalizeImageQualityForModel(config.model || config.imageModel, config.quality) || "auto";
     const count = Math.max(1, Math.min(15, Math.floor(Math.abs(Number(config.count)) || 1)));
     const activeSize = config.size || "auto";
+    const gemini = geminiImageCapabilities(config.model || config.imageModel);
+    const geminiSettings = normalizeGeminiImageSettings(config.model || config.imageModel, config);
     const updateOpen = (nextOpen: boolean) => {
         setOpen(nextOpen);
         onOpenChange?.(nextOpen);
@@ -66,7 +69,7 @@ export function CanvasImageSettingsPopover({ config, onConfigChange, onOpenChang
             <span ref={buttonRef} className="inline-flex min-w-0">
                 <Button size="small" type="text" className={buttonClassName || "!h-8 !max-w-[180px] !justify-start !rounded-full !px-2.5"} style={{ background: theme.node.fill, color: theme.node.text }} icon={<Settings2 className="size-3.5" />} onClick={() => updateOpen(!open)}>
                     <span className="truncate">
-                        {imageQualityLabel(quality)} · {imageSizeLabel(activeSize)} · {t("canvas.controls.images", { count })}
+                        {gemini ? `${geminiSettings.geminiImageSize} · ${geminiSettings.geminiAspectRatio === "auto" ? t("settingsPanels.common.auto") : geminiSettings.geminiAspectRatio}` : `${imageQualityLabel(quality)} · ${imageSizeLabel(activeSize)}`} · {t("canvas.controls.images", { count })}
                     </span>
                 </Button>
             </span>

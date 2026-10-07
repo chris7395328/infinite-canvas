@@ -3,6 +3,7 @@ import { ConfigProvider, Switch } from "antd";
 import { useTranslation } from "react-i18next";
 
 import i18n from "@/i18n";
+import { geminiImageCapabilities, normalizeGeminiImageSettings } from "@/lib/gemini-image";
 import { type CanvasTheme } from "@/lib/canvas-theme";
 import { getImageQualityOptions, isImageQualitySupported } from "@/lib/image-quality";
 import { computeMediaSize, inferMediaRatio, inferMediaScale, mediaRatioOptions, mediaScaleOptions, readMediaDimensions } from "@/lib/media-size";
@@ -18,7 +19,7 @@ export const imageScaleOptions = mediaScaleOptions.map((value) => ({ value, labe
 
 type ImageSettingsPanelProps = {
     config: AiConfig;
-    onConfigChange: (key: "quality" | "size" | "count" | "background", value: string) => void;
+    onConfigChange: (key: "quality" | "size" | "count" | "background" | "geminiImageSize" | "geminiAspectRatio" | "geminiThinkingLevel", value: string) => void;
     theme: CanvasTheme;
     showTitle?: boolean;
     className?: string;
@@ -30,6 +31,7 @@ export function ImageSettingsPanel({ config, onConfigChange, theme, showTitle = 
     const { t } = useTranslation();
     const [snapDimensionToStep, setSnapDimensionToStep] = useState(true);
     const model = config.model || config.imageModel;
+    const gemini = geminiImageCapabilities(model);
     const qualityOptions = getImageQualityOptions(model);
     const quality = isImageQualitySupported(model, config.quality) ? config.quality : "auto";
     const count = Math.max(1, Math.min(maxCount, Math.floor(Math.abs(Number(config.count)) || 1)));
@@ -60,6 +62,7 @@ export function ImageSettingsPanel({ config, onConfigChange, theme, showTitle = 
                 }}
             >
                 {showTitle ? <div className="text-lg font-semibold">{t("settingsPanels.image.title")}</div> : null}
+                {gemini ? <GeminiImageOptions config={config} theme={theme} onConfigChange={onConfigChange} /> : <>
                 <div className="space-y-2.5">
                     <SettingTitle color={theme.node.muted}>{t("settingsPanels.image.quality")}</SettingTitle>
                     <div className={`grid gap-2.5 ${qualityOptions.length > 4 ? "grid-cols-3" : "grid-cols-4"}`}>
@@ -127,6 +130,7 @@ export function ImageSettingsPanel({ config, onConfigChange, theme, showTitle = 
                         <Switch size="small" checked={transparentBackground} onChange={(checked) => onConfigChange("background", checked ? "transparent" : "")} />
                     </span>
                 </div>
+                </>}
                 <div className="space-y-2.5">
                     <SettingTitle color={theme.node.muted}>{t("settingsPanels.image.count")}</SettingTitle>
                     <div className="grid grid-cols-4 gap-2.5">
@@ -141,6 +145,29 @@ export function ImageSettingsPanel({ config, onConfigChange, theme, showTitle = 
             </div>
         </ImageSettingsTheme>
     );
+}
+
+function GeminiImageOptions({ config, theme, onConfigChange }: Pick<ImageSettingsPanelProps, "config" | "theme" | "onConfigChange">) {
+    const { t } = useTranslation();
+    const model = config.model || config.imageModel;
+    const capabilities = geminiImageCapabilities(model)!;
+    const settings = normalizeGeminiImageSettings(model, config);
+    const groups = [
+        { key: "geminiImageSize" as const, label: "resolution", values: capabilities.sizes },
+        { key: "geminiAspectRatio" as const, label: "aspectRatio", values: ["auto", ...capabilities.ratios] },
+        ...(capabilities.thinking.length ? [{ key: "geminiThinkingLevel" as const, label: "thinking", values: ["auto", ...capabilities.thinking] }] : []),
+    ];
+    return <>
+        <div className="text-xs leading-relaxed" style={{ color: theme.node.muted }}>{t("settingsPanels.geminiImage.hint")}</div>
+        {groups.map((group) => <div key={group.key} className="space-y-2.5">
+            <SettingTitle color={theme.node.muted}>{t(`settingsPanels.geminiImage.${group.label}`)}</SettingTitle>
+            <div className="grid grid-cols-3 gap-2">
+                {group.values.map((value) => <OptionPill key={value} selected={settings[group.key] === value} theme={theme} onClick={() => onConfigChange(group.key, value)}>
+                    {value === "auto" ? t("settingsPanels.common.auto") : group.key === "geminiThinkingLevel" ? t(`settingsPanels.geminiImage.${value}`) : value}
+                </OptionPill>)}
+            </div>
+        </div>)}
+    </>;
 }
 
 export function ImageSettingsTheme({ theme, children }: { theme: CanvasTheme; children: ReactNode }) {

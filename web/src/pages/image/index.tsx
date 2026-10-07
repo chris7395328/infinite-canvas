@@ -11,6 +11,7 @@ import { PromptSelectDialog } from "@/components/prompts/prompt-select-dialog";
 import { AssetPickerModal, type InsertAssetPayload } from "@/components/canvas/asset-picker-modal";
 import { canvasThemes } from "@/lib/canvas-theme";
 import { imageReferenceLabel } from "@/lib/image-reference-prompt";
+import { geminiImageCapabilities, normalizeGeminiImageSettings } from "@/lib/gemini-image";
 import { modelOptionLabel, useConfigStore, useEffectiveConfig, type AiConfig } from "@/stores/use-config-store";
 import { useThemeStore } from "@/stores/use-theme-store";
 import { nanoid } from "nanoid";
@@ -59,7 +60,7 @@ type GenerationLog = {
     images: GeneratedImage[];
 };
 
-type GenerationLogConfig = Pick<AiConfig, "model" | "imageModel" | "quality" | "size" | "count">;
+type GenerationLogConfig = Pick<AiConfig, "model" | "imageModel" | "quality" | "size" | "count" | "geminiImageSize" | "geminiAspectRatio" | "geminiThinkingLevel">;
 
 type UpdateAiConfig = <K extends keyof AiConfig>(key: K, value: AiConfig[K]) => void;
 
@@ -301,6 +302,9 @@ export default function ImagePage() {
         if (log.config.quality) updateConfig("quality", log.config.quality);
         if (log.config.size) updateConfig("size", log.config.size);
         if (log.config.count) updateConfig("count", log.config.count);
+        updateConfig("geminiImageSize", log.config.geminiImageSize);
+        updateConfig("geminiAspectRatio", log.config.geminiAspectRatio);
+        updateConfig("geminiThinkingLevel", log.config.geminiThinkingLevel);
         setResults(log.images.map((image) => ({ id: image.id, status: "success", image })));
     };
 
@@ -471,7 +475,7 @@ export default function ImagePage() {
 
                             <div className="flex items-center justify-between rounded-lg border border-stone-200 bg-stone-50 px-3 py-2 text-sm dark:border-stone-800 dark:bg-stone-900 sm:hidden">
                                 <span className="truncate text-stone-500 dark:text-stone-400">
-                                    {modelOptionLabel(effectiveConfig, model)} · {effectiveConfig.size} · {effectiveConfig.quality}
+                                    {modelOptionLabel(effectiveConfig, model)} · {geminiImageCapabilities(model) ? `${normalizeGeminiImageSettings(model, effectiveConfig).geminiImageSize} · ${normalizeGeminiImageSettings(model, effectiveConfig).geminiAspectRatio}` : `${effectiveConfig.size} · ${effectiveConfig.quality}`}
                                 </span>
                                 <Button size="small" type="text" icon={<SlidersHorizontal className="size-4" />} onClick={() => setSettingsOpen(true)}>
                                     {t("workbench.adjust")}
@@ -830,6 +834,9 @@ function normalizeLogConfig(log: Partial<GenerationLog>): GenerationLogConfig {
         model: log.config?.model || log.model || "",
         imageModel: log.config?.imageModel || log.model || "",
         quality: log.config?.quality || log.quality || "",
+        geminiImageSize: log.config?.geminiImageSize,
+        geminiAspectRatio: log.config?.geminiAspectRatio,
+        geminiThinkingLevel: log.config?.geminiThinkingLevel,
         size: log.config?.size || log.size || "",
         count: log.config?.count || String(log.imageCount || log.successCount || 1),
     };
@@ -878,6 +885,10 @@ function buildLog({
         model: config.model,
         imageModel: config.imageModel,
         quality: config.quality,
+        geminiImageSize: config.geminiImageSize,
+        geminiAspectRatio: config.geminiAspectRatio,
+        geminiThinkingLevel: config.geminiThinkingLevel,
+        ...(geminiImageCapabilities(config.model) ? normalizeGeminiImageSettings(config.model, config) : {}),
         size: config.size,
         count: config.count,
     };

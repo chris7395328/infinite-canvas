@@ -7,8 +7,9 @@ import { nanoid } from "nanoid";
 import { dataUrlToFile } from "@/lib/image-utils";
 import { buildImageReferencePromptText } from "@/lib/image-reference-prompt";
 import { imageToDataUrl } from "@/services/image-storage";
-import { imageSizePresets, inferMediaScale } from "@/lib/media-size";
+import { imageSizePresets } from "@/lib/media-size";
 import { isGptImage25Model, normalizeImageQualityForModel } from "@/lib/image-quality";
+import { geminiImageCapabilities, geminiImageGenerationConfig } from "@/lib/gemini-image";
 import type { ReferenceImage } from "@/types/image";
 
 const apiText = (key: string, options?: Record<string, unknown>) => i18n.t(`apiErrors.${key}`, options);
@@ -79,6 +80,7 @@ type ImageApiResponse = {
     msg?: string;
 };
 type GeminiPart = {
+    thought?: boolean;
     text?: string;
     inlineData?: { mimeType?: string; data?: string };
     inline_data?: { mime_type?: string; mimeType?: string; data?: string };
@@ -124,8 +126,6 @@ const IMAGE_OUTPUT_FORMAT = "png";
 // 与 image-storage 的下载超时保持一致，避免接口挂起时节点一直停在生成中。
 const IMAGE_REQUEST_TIMEOUT_MS = 10 * 60_000;
 
-const GEMINI_SUPPORTED_RATIOS = ["1:1", "1:4", "1:8", "2:3", "3:2", "3:4", "4:1", "4:3", "4:5", "5:4", "8:1", "9:16", "16:9", "21:9"];
-const GEMINI_IMAGE_SIZE_BY_QUALITY: Record<string, string> = { low: "1K", medium: "2K", high: "4K", standard: "1K", hd: "2K" };
 
 function normalizeQuality(quality: string) {
     const value = quality.trim().toLowerCase();
@@ -212,45 +212,6 @@ function resolveRequestSize(quality: string | undefined, size: string) {
     }
     if (value.includes(":")) return resolveSize(quality, value);
     throw new Error(apiText("invalidImageSizeFormat"));
-}
-
-function resolveGeminiImageConfig(config: AiConfig) {
-    const value = config.size.trim();
-    const dimensions = parseImageDimensions(value);
-    const ratio = dimensions ? `${dimensions.width}:${dimensions.height}` : value;
-    const aspectRatio = value && value.toLowerCase() !== "auto" ? closestGeminiAspectRatio(ratio) : undefined;
-    const imageSize = supportsGeminiImageSize(config.model) ? resolveGeminiImageSize(config.quality, dimensions) : undefined;
-    const image = { ...(aspectRatio ? { aspectRatio } : {}), ...(imageSize ? { imageSize } : {}) };
-    return Object.keys(image).length ? { imageConfig: image } : {};
-}
-
-function closestGeminiAspectRatio(value: string) {
-    const ratio = parseImageRatio(value);
-    const target = ratio.width / ratio.height;
-    return GEMINI_SUPPORTED_RATIOS.reduce((best, item) => {
-        const current = parseRatioValue(item);
-        const bestRatio = parseRatioValue(best);
-        return Math.abs(current.width / current.height - target) < Math.abs(bestRatio.width / bestRatio.height - target) ? item : best;
-    });
-}
-
-function resolveGeminiImageSize(quality: string, dimensions: { width: number; height: number } | null) {
-    const normalizedQuality = normalizeQuality(quality);
-    if (normalizedQuality) return GEMINI_IMAGE_SIZE_BY_QUALITY[normalizedQuality];
-    if (!dimensions) return undefined;
-    const size = `${dimensions.width}x${dimensions.height}`;
-    const scale = inferMediaScale(size);
-    if (Object.values(imageSizePresets[scale]).includes(size)) return scale.toUpperCase();
-    const edge = Math.max(dimensions.width, dimensions.height);
-    if (edge <= 768) return "512";
-    if (edge <= 1536) return "1K";
-    if (edge <= 3072) return "2K";
-    return "4K";
-}
-
-function supportsGeminiImageSize(model: string) {
-    const value = model.toLowerCase();
-    return value.includes("gemini-3") || value.includes("3.1") || value.includes("3-pro");
 }
 
 function resolveImageSource(item: Record<string, unknown>) {
@@ -710,7 +671,7 @@ async function requestGeminiImagesOnce(config: AiConfig, prompt: string, referen
     const response = await axios.post<GeminiPayload>(
         geminiApiUrl(config, "generateContent"),
         {
-            ...toGeminiBody(config, [{ role: "user", content: prompt }], { generationConfig: { responseModalities: ["TEXT", "IMAGE"], ...resolveGeminiImageConfig(config) } }),
+            ...toGeminiBody(config, [{ role: "user", content: prompt }], { generationConfig: geminiImageGenerationConfig(config.model, config) }),
             contents: [{ role: "user", parts }],
         },
         { headers: geminiHeaders(config), signal: options?.signal, timeout: IMAGE_REQUEST_TIMEOUT_MS },
@@ -723,6 +684,7 @@ function parseGeminiImagePayload(payload: GeminiPayload) {
     const images =
         payload.candidates
             ?.flatMap((candidate) => candidate.content?.parts || [])
+            .filter((part) => !part.thought)
             .map((part) => {
                 const inlineData = part.inlineData || (part.inline_data ? { mimeType: part.inline_data.mimeType || part.inline_data.mime_type, data: part.inline_data.data } : undefined);
                 if (inlineData?.data) return `data:${inlineData.mimeType || "image/png"};base64,${inlineData.data}`;
@@ -734,14 +696,18 @@ function parseGeminiImagePayload(payload: GeminiPayload) {
     return images;
 }
 
+function imagePluginParams(config: AiConfig, model: string, count: number) {
+    if (geminiImageCapabilities(model)) return { generationConfig: geminiImageGenerationConfig(model, config), count };
+    const quality = normalizeRequestQuality(model, config.quality);
+    const background = normalizeBackground(config.background);
+    return { size: resolveRequestSize(quality, config.size), quality, count, ...(background ? { background } : {}) };
+}
+
 export async function requestGeneration(config: AiConfig, prompt: string, options?: RequestOptions) {
     const requestConfig = resolveModelRequestConfig(config, config.model || config.imageModel);
     const n = Math.max(1, Math.min(15, Math.floor(Math.abs(Number(config.count)) || 1)));
     const script = resolveModelScript(config, config.model || config.imageModel);
     if (script) {
-        const quality = normalizeRequestQuality(requestConfig.model, config.quality);
-        const requestSize = resolveRequestSize(quality, config.size);
-        const background = normalizeBackground(config.background);
         try {
             const result = await runModelPlugin({
                 capability: "image",
@@ -749,7 +715,7 @@ export async function requestGeneration(config: AiConfig, prompt: string, option
                 config: requestConfig,
                 prompt: withSystemPrompt(requestConfig, prompt),
                 images: [],
-                params: { size: requestSize, quality, count: n, ...(background ? { background } : {}) },
+                params: imagePluginParams(config, requestConfig.model, n),
                 signal: options?.signal,
             });
             return normalizePluginImages(result).map((dataUrl) => ({ id: nanoid(), dataUrl }));
@@ -764,6 +730,7 @@ export async function requestGeneration(config: AiConfig, prompt: string, option
             throw new Error(readAxiosError(error, apiText("requestFailed")));
         }
     }
+    if (geminiImageCapabilities(requestConfig.model)) throw new Error(i18n.t("settingsPanels.geminiImage.formatRequired"));
     const quality = normalizeRequestQuality(requestConfig.model, config.quality);
     const requestSize = resolveRequestSize(quality, config.size);
     const background = normalizeBackground(config.background);
@@ -800,9 +767,6 @@ export async function requestEdit(config: AiConfig, prompt: string, references: 
     const requestPrompt = buildImageReferencePromptText(prompt, references);
     const script = resolveModelScript(config, config.model || config.imageModel);
     if (script) {
-        const quality = normalizeRequestQuality(requestConfig.model, config.quality);
-        const requestSize = resolveRequestSize(quality, config.size);
-        const background = normalizeBackground(config.background);
         const refs = await Promise.all(references.map((image) => imageToDataUrl(image)));
         try {
             const result = await runModelPlugin({
@@ -811,7 +775,7 @@ export async function requestEdit(config: AiConfig, prompt: string, references: 
                 config: requestConfig,
                 prompt: withSystemPrompt(requestConfig, requestPrompt),
                 images: refs,
-                params: { size: requestSize, quality, count: n, ...(background ? { background } : {}) },
+                params: imagePluginParams(config, requestConfig.model, n),
                 signal: options?.signal,
             });
             return normalizePluginImages(result).map((dataUrl) => ({ id: nanoid(), dataUrl }));
@@ -827,6 +791,7 @@ export async function requestEdit(config: AiConfig, prompt: string, references: 
         }
     }
 
+    if (geminiImageCapabilities(requestConfig.model)) throw new Error(i18n.t("settingsPanels.geminiImage.formatRequired"));
     const quality = normalizeRequestQuality(requestConfig.model, config.quality);
     const requestSize = resolveRequestSize(quality, config.size);
     const background = normalizeBackground(config.background);

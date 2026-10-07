@@ -362,12 +362,11 @@ return await generateImage({
             label: i18n.t("modelPlugin.templates.gemini"),
             script: `/**
  * Gemini image generation via models/{model}:generateContent.
- * Reference images go into parts.inline_data. size maps to aspectRatio; quality maps to imageSize.
+ * Reference images go into parts.inline_data. Gemini settings are independent of OpenAI quality/size.
  * @param {string} prompt
  * @param {string[]} images - reference images as data URLs
  * @param {object} params
- * @param {string} params.size - "1024x1024", "16:9", "auto", etc.; sent as aspectRatio
- * @param {string} params.quality - "low" | "medium" | "high"; sent as imageSize 1K/2K/4K
+ * @param {object} params.generationConfig - model-specific imageConfig and thinkingConfig
  * @param {number} params.count - number of generateContent calls
  * @param {string} model
  * @param {string} baseUrl
@@ -379,8 +378,7 @@ async function generateImage({
   prompt,
   images,
   params: {
-    size,
-    quality,
+    generationConfig,
     count,
   },
   model,
@@ -401,26 +399,6 @@ async function generateImage({
     }
   }
 
-  const aspectRatioMap = {
-    "1024x1024": "1:1",
-    "1280x720": "16:9",
-    "720x1280": "9:16",
-    "1536x1024": "3:2",
-    "1024x1536": "2:3",
-  };
-  const imageSizeMap = {
-    low: "1K",
-    medium: "2K",
-    high: "4K",
-  };
-  let aspectRatio = "1:1";
-  if (size && size !== "auto") {
-    aspectRatio = aspectRatioMap[size] || size;
-  }
-  let imageSize = "1K";
-  if (imageSizeMap[quality]) {
-    imageSize = imageSizeMap[quality];
-  }
   const n = Number(count) || 1;
   const urls = [];
 
@@ -439,17 +417,12 @@ async function generateImage({
             parts: parts,
           },
         ],
-        generationConfig: {
-          responseModalities: ["TEXT", "IMAGE"],
-          imageConfig: {
-            aspectRatio: aspectRatio,
-            imageSize: imageSize,
-          },
-        },
+        generationConfig: generationConfig || { responseModalities: ["TEXT", "IMAGE"] },
       },
     });
     for (const candidate of data.candidates || []) {
       for (const part of candidate.content?.parts || []) {
+        if (part.thought) continue;
         const img = part.inlineData || part.inline_data;
         if (img && img.data) {
           urls.push(\`data:\${img.mimeType || img.mime_type || "image/png"};base64,\${img.data}\`);
