@@ -8,7 +8,7 @@ import type { ReferenceImage } from "@/types/image";
 export type GeminiAudioResult = { blob: Blob; audioText?: string; audioInteractionId?: string };
 type AudioBlock = { type?: string; data?: string; uri?: string; mime_type?: string; text?: string };
 type Interaction = { id?: string; status?: string; error?: { message?: string }; steps?: Array<{ type?: string; content?: AudioBlock[] }> };
-export type GeminiVoice = { id: string; display_name?: string; description?: string; type?: string; language_code?: string; sample_audio?: { mime_type?: string; data?: string } };
+export type GeminiVoice = { id: string; display_name?: string; description?: string; type?: string; language_code?: string; gender?: string; pitch?: string; accent?: string; context?: string; sample_audio?: { mime_type?: string; data?: string } };
 
 function geminiAudioConfig(config: AiConfig) {
     const resolved = resolveModelRequestConfig(config, config.model || config.audioModel);
@@ -97,13 +97,14 @@ export async function requestGeminiAudio(config: AiConfig, prompt: string, optio
 
 export async function listGeminiVoices(config: AiConfig, filters: { search?: string; language_code?: string; type?: string; gender?: string; pitch?: string; accent?: string; context?: string; page_token?: string } = {}, signal?: AbortSignal) {
     const resolved = geminiAudioConfig(config);
-    const { data } = await axios.get<{ voices?: GeminiVoice[]; next_page_token?: string }>(endpoint(resolved, "voices"), { headers: headers(resolved), params: filters, signal });
+    const params = Object.fromEntries(Object.entries(filters).filter(([, value]) => value).map(([key, value]) => [key, key === "search" || key === "page_token" ? value : [value]]));
+    const { data } = await axios.get<{ voices?: GeminiVoice[]; next_page_token?: string }>(endpoint(resolved, "voices"), { headers: headers(resolved), params, paramsSerializer: { indexes: null }, signal });
     return data;
 }
 
-export async function createGeminiVoice(config: AiConfig, options: { name: string; description?: string; language?: string; source?: File; consent?: File }, signal?: AbortSignal) {
+export async function createGeminiVoice(config: AiConfig, options: { name: string; description?: string; language?: string; source?: Blob; consent?: Blob }, signal?: AbortSignal) {
     const resolved = geminiAudioConfig(config);
-    const audioData = async (file: File) => ({ mime_type: file.type || "audio/wav", data: (await readFileAsDataUrl(file)).split(",")[1] });
+    const audioData = async (file: Blob) => ({ mime_type: file.type || "audio/wav", data: (await readFileAsDataUrl(file)).split(",")[1] });
     const replicated = Boolean(options.source);
     if (!options.name.trim() || (!replicated && !options.description?.trim()) || (replicated && !options.consent)) throw new Error("请填写音色名称及描述，复刻还需参考音频和本人授权录音。");
     const { data } = await axios.post<GeminiVoice>(endpoint(resolved, "voices"), {

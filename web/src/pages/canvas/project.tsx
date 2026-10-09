@@ -7,7 +7,9 @@ import { useTranslation } from "react-i18next";
 
 import { requestEdit, requestGeneration, requestImageQuestion } from "@/services/api/image";
 import { requestAudioGeneration, storeGeneratedAudio } from "@/services/api/audio";
-import { geminiAudioCapabilities } from "@/lib/gemini-audio";
+import { geminiAudioCapabilities, resolveGeminiReferenceVoice } from "@/lib/gemini-audio";
+import { resolveModelChannel } from "@/stores/use-config-store";
+import { CanvasAudioInputsContext, audioReferencesFromInputs } from "@/components/canvas/canvas-audio-inputs";
 import { createVideoGenerationTask, isVideoTaskFailed, storeGeneratedVideo, waitForVideoGenerationTask } from "@/services/api/video";
 import { isMoyuSeedance } from "@/services/api/moyu-video";
 import { defaultConfig, resolveModelRequestConfig, useConfigStore, useEffectiveConfig, type AiConfig } from "@/stores/use-config-store";
@@ -2723,6 +2725,7 @@ function InfiniteCanvasPage() {
                 }
 
                 if (mode === "audio") {
+                    if (geminiAudioCapabilities(generationConfig.model)?.kind === "tts") generationConfig.geminiAudio = resolveGeminiReferenceVoice(generationConfig.geminiAudio || {}, audioReferencesFromInputs(buildNodeGenerationInputs(nodeId, nodesRef.current, connectionsRef.current)), resolveModelChannel(generationConfig, generationConfig.model).id);
                     const spec = NODE_DEFAULT_SIZE[CanvasNodeType.Audio];
                     const isEmptyAudioNode = sourceNode?.type === CanvasNodeType.Audio && !sourceNode.metadata?.content;
                     const audioId = isEmptyAudioNode ? nodeId : nanoid();
@@ -3011,6 +3014,7 @@ function InfiniteCanvasPage() {
                     return;
                 }
                 if (node.type === CanvasNodeType.Audio) {
+                    if (geminiAudioCapabilities(generationConfig.model)?.kind === "tts") generationConfig.geminiAudio = resolveGeminiReferenceVoice(generationConfig.geminiAudio || {}, audioReferencesFromInputs(buildNodeGenerationInputs(sourceNode.id, nodesRef.current, connectionsRef.current)), resolveModelChannel(generationConfig, generationConfig.model).id);
                     const audio = await storeGeneratedAudio(await requestAudioGeneration(generationConfig, prompt, { signal: controller.signal, images: retryImages }), generationConfig.audioFormat);
                     setNodes((prev) => prev.map((item) => (item.id === node.id ? { ...item, metadata: { ...item.metadata, ...audioMetadata(audio), prompt, ...buildAudioGenerationMetadata(generationConfig) } } : item)));
                     return;
@@ -3267,6 +3271,7 @@ function InfiniteCanvasPage() {
                     onStartReferenceSelection={startNodeReferenceSelection}
                 />
             ) : (
+                <CanvasAudioInputsContext.Provider value={audioReferencesFromInputs(buildNodeGenerationInputs(panelNode.id, nodes, connections))}>
                 <CanvasNodePromptPanel
                     node={panelNode}
                     nodes={nodes}
@@ -3286,12 +3291,14 @@ function InfiniteCanvasPage() {
                         if (open) setToolbarNodeId(null);
                     }}
                 />
+                </CanvasAudioInputsContext.Provider>
             ),
-        [configInputsById, confirmStopGeneration, connectedNodesByNodeId, disconnectNodeReference, handleConfigNodeChange, handleGenerateNode, handleGenerateSeedanceFormal, handleNodePromptChange, mentionReferencesByNodeId, nodes, renderPluginPanel, runningNodeId, startNodeReferenceSelection],
+        [configInputsById, confirmStopGeneration, connectedNodesByNodeId, connections, disconnectNodeReference, handleConfigNodeChange, handleGenerateNode, handleGenerateSeedanceFormal, handleNodePromptChange, mentionReferencesByNodeId, nodes, renderPluginPanel, runningNodeId, startNodeReferenceSelection],
     );
 
     const renderNodeContentPanel = useCallback(
         (contentNode: CanvasNodeData) => (
+            <CanvasAudioInputsContext.Provider value={audioReferencesFromInputs(configInputsById.get(contentNode.id) || [])}>
             <CanvasConfigNodePanel
                 node={contentNode}
                 isRunning={runningNodeId === contentNode.id}
@@ -3304,6 +3311,7 @@ function InfiniteCanvasPage() {
                     void handleGenerateNode(nodeId, target?.metadata?.generationMode || "image", target?.metadata?.composerContent ?? target?.metadata?.prompt ?? "");
                 }}
             />
+            </CanvasAudioInputsContext.Provider>
         ),
         [configInputsById, confirmStopGeneration, handleConfigNodeChange, handleGenerateNode, runningNodeId],
     );

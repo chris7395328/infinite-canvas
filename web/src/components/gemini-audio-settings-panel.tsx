@@ -1,11 +1,14 @@
-import { useEffect, useRef, useState } from "react";
+import { useContext, useEffect, useRef, useState } from "react";
 import { App, Button, Checkbox, Input, Select } from "antd";
-import { geminiAudioCapabilities, geminiVoiceOptions, normalizeGeminiAudio, type GeminiAudioSettings } from "@/lib/gemini-audio";
+import { geminiAudioCapabilities, geminiAudioReferenceKey, geminiVoiceOptions, normalizeGeminiAudio, resolveGeminiReferenceVoice, type GeminiAudioReference, type GeminiAudioSettings } from "@/lib/gemini-audio";
 import { createGeminiVoice, listGeminiVoices, type GeminiVoice } from "@/services/api/gemini-audio";
-import type { AiConfig } from "@/stores/use-config-store";
+import { resolveModelChannel, withLocalProxy, type AiConfig } from "@/stores/use-config-store";
+import { getMediaBlob } from "@/services/file-storage";
+import { CanvasAudioInputsContext } from "@/components/canvas/canvas-audio-inputs";
 
 export function GeminiAudioSettingsPanel({ config, onChange }: { config: AiConfig; onChange: (value: GeminiAudioSettings) => void }) {
     const caps = geminiAudioCapabilities(config.model || config.audioModel)!;
+    const references = useContext(CanvasAudioInputsContext);
     const settings = normalizeGeminiAudio(config.model || config.audioModel, config.geminiAudio);
     const update = (key: keyof GeminiAudioSettings, value: string) => onChange({ ...settings, [key]: value });
     const textField = (key: keyof GeminiAudioSettings, label: string, placeholder: string, multiline = false) => (
@@ -26,6 +29,7 @@ export function GeminiAudioSettingsPanel({ config, onChange }: { config: AiConfi
             <p className="text-xs leading-5 opacity-70">歌词和结构会随生成结果保存在节点。Google会进行版权与安全审核，生成音频带有SynthID水印。</p>
         </div>
     );
+    if (references.length) return <GeminiNodeVoiceReplication key={config.model} config={config} settings={settings} references={references} onChange={onChange} />;
     return (
         <div className="space-y-3">
             <p className="text-xs leading-5 opacity-70">{caps.lite ? "Flash-Lite TTS：低延迟语音合成，101种语言。" : "Flash TTS：高表现力语音合成，130种语言。"} 两者使用相同参数，只接受文本，不使用连接的图片或音视频；正文是逐字朗读的台词，不要把导演指令写进台词。</p>
@@ -43,9 +47,80 @@ export function GeminiAudioSettingsPanel({ config, onChange }: { config: AiConfi
     );
 }
 
+function GeminiNodeVoiceReplication({ config, settings, references, onChange }: { config: AiConfig; settings: ReturnType<typeof normalizeGeminiAudio>; references: GeminiAudioReference[]; onChange: (value: GeminiAudioSettings) => void }) {
+    const { message } = App.useApp();
+    const channel = resolveModelChannel(config, config.model);
+    const sourceId = settings.replicationSourceNodeId || (references.length === 1 ? references[0].nodeId : "");
+    const consentId = settings.replicationConsentNodeId || "";
+    const source = references.find((item) => item.nodeId === sourceId);
+    const consent = references.find((item) => item.nodeId === consentId);
+    const [name, setName] = useState("");
+    const [language, setLanguage] = useState(settings.language || "");
+    const [authorized, setAuthorized] = useState(false);
+    const [confirming, setConfirming] = useState(false);
+    const [busy, setBusy] = useState(false);
+    const requestRef = useRef<AbortController | null>(null);
+    const scope = JSON.stringify([config.model, channel.id, sourceId, consentId, references.map((item) => [item.nodeId, geminiAudioReferenceKey(item)])]);
+    useEffect(() => {
+        setAuthorized(false); setConfirming(false); setBusy(false);
+        return () => requestRef.current?.abort();
+    }, [scope, channel.apiKey, channel.baseUrl]);
+    let ready = false;
+    try { resolveGeminiReferenceVoice(settings, references, channel.id); ready = true; } catch { /* Missing or changed recordings require explicit creation. */ }
+    const select = (key: "replicationSourceNodeId" | "replicationConsentNodeId", value: string) => onChange({ ...settings, mode: "single", [key]: value, replication: undefined });
+    const create = async () => {
+        if (!source || !consent || source.nodeId === consent.nodeId || !authorized || !name.trim() || busy) return;
+        const controller = new AbortController(); requestRef.current = controller; setBusy(true);
+        const read = async (reference: GeminiAudioReference) => {
+            const stored = reference.audio.storageKey ? await getMediaBlob(reference.audio.storageKey) : null;
+            let blob = stored;
+            if (!blob) {
+                const response = await fetch(withLocalProxy(reference.audio.url), { signal: controller.signal });
+                if (!response.ok) throw new Error(`音频节点「${reference.title}」读取失败（${response.status}）。`);
+                blob = await response.blob();
+            }
+            if (!blob.size || !(blob.type || reference.audio.type).startsWith("audio/")) throw new Error(`音频节点「${reference.title}」不是有效音频。`);
+            return blob.type.startsWith("audio/") ? blob : new Blob([blob], { type: reference.audio.type });
+        };
+        try {
+            const [sourceAudio, consentAudio] = await Promise.all([read(source), read(consent)]);
+            if (controller.signal.aborted) return;
+            const voice = await createGeminiVoice(config, { name, language, source: sourceAudio, consent: consentAudio }, controller.signal);
+            if (controller.signal.aborted) return;
+            onChange({ ...settings, mode: "single", voice: voice.id, language, replicationSourceNodeId: source.nodeId, replicationConsentNodeId: consent.nodeId, replication: { voiceId: voice.id, channelId: channel.id, sourceNodeId: source.nodeId, consentNodeId: consent.nodeId, sourceKey: geminiAudioReferenceKey(source), consentKey: geminiAudioReferenceKey(consent) } });
+            setConfirming(false); setAuthorized(false);
+            message.success("授权音色已保存到当前节点，可填写台词并生成配音。");
+        } catch (error) { if (!controller.signal.aborted) message.error(error instanceof Error ? error.message : "授权音色创建失败"); }
+        finally { if (!controller.signal.aborted) setBusy(false); }
+    };
+    const options = references.map((item) => ({ value: item.nodeId, label: item.title || item.nodeId }));
+    return <div className="space-y-3 text-xs">
+        <p className="leading-5 opacity-70">已连接音频节点，自动进入授权音色复刻。参考录音与本人授权录音分别使用两条音频入线；不会把录音当成需要朗读的台词。</p>
+        <label className="block space-y-1.5"><span>参考录音节点（10–30秒自然人声）</span><Select className="w-full" placeholder="选择参考录音" value={sourceId || undefined} options={options.filter((item) => item.value !== consentId)} onChange={(value) => select("replicationSourceNodeId", value)} /></label>
+        <label className="block space-y-1.5"><span>本人授权录音节点（同一位说话人）</span><Select className="w-full" placeholder="请再连接本人授权录音节点并选择" value={consentId || undefined} options={options.filter((item) => item.value !== sourceId)} onChange={(value) => select("replicationConsentNodeId", value)} /></label>
+        <p className="leading-5 opacity-70">授权录音请本人朗读：我是此声音的拥有者并授权谷歌使用此声音创建语音合成模型。需本人真实录音，勾选不能代替官方验证。</p>
+        {ready ? <>
+            <p className="break-all leading-5">已应用授权音色：{settings.replication!.voiceId}</p>
+            <label className="block space-y-1.5"><span>配音表演风格／情绪／语速</span><Input.TextArea value={settings.style || ""} placeholder="如：自然、温暖、稍慢" onChange={(event) => onChange({ ...settings, mode: "single", style: event.target.value })} /></label>
+            <p className="leading-5 opacity-70">正文填写台词，点击节点生成按钮即可配音。断开音频入线可恢复普通音色选择；更换录音后必须重新授权创建。</p>
+            <Button size="small" onClick={() => onChange({ ...settings, replication: undefined })}>重新创建授权音色</Button>
+        </> : <>
+            <Input value={name} placeholder="自定义音色名称" onChange={(event) => { setName(event.target.value); setConfirming(false); }} />
+            <Input value={language} placeholder="语言代码（可选，如 zh-CN）" onChange={(event) => { setLanguage(event.target.value); setConfirming(false); }} />
+            <Checkbox checked={authorized} onChange={(event) => { setAuthorized(event.target.checked); setConfirming(false); }}>确认两段录音为同一位成年本人，且本人同意上传Google创建音色</Checkbox>
+            {confirming ? <div className="space-y-2">
+                <p className="leading-5">将上传上述两个音频节点到Google，可能计费；音色保存在Google项目，官方一年未使用过期。浏览器节点只保存音色ID及来源关联。</p>
+                <div className="flex gap-2"><Button size="small" loading={busy} disabled={!authorized} onClick={() => void create()}>确认上传并创建</Button><Button size="small" disabled={busy} onClick={() => setConfirming(false)}>取消</Button></div>
+            </div> : <Button size="small" disabled={!source || !consent || source.nodeId === consent.nodeId || !name.trim() || !authorized} onClick={() => setConfirming(true)}>创建并应用授权音色</Button>}
+        </>}
+    </div>;
+}
+
 function GeminiVoicePicker({ config, settings, onChange }: { config: AiConfig; settings: ReturnType<typeof normalizeGeminiAudio>; onChange: (value: GeminiAudioSettings) => void }) {
     const { message, modal } = App.useApp();
     const [voices, setVoices] = useState<GeminiVoice[]>([]);
+    const [loaded, setLoaded] = useState(false);
+    const [loadedQuery, setLoadedQuery] = useState("");
     const [nextPage, setNextPage] = useState<string>();
     const [search, setSearch] = useState("");
     const [language, setLanguage] = useState("");
@@ -60,17 +135,21 @@ function GeminiVoicePicker({ config, settings, onChange }: { config: AiConfig; s
     const [voiceType, setVoiceType] = useState("prompted");
     const requestRef = useRef<AbortController | null>(null);
     const confirmationRef = useRef<{ destroy: () => void } | null>(null);
+    const query = JSON.stringify([search.trim(), language.trim(), filters]);
     useEffect(() => {
-        setVoices([]); setNextPage(undefined); setSample(""); setBusy(false);
+        setVoices([]); setLoaded(false); setLoadedQuery(""); setNextPage(undefined); setSample(""); setBusy(false);
         return () => { requestRef.current?.abort(); confirmationRef.current?.destroy(); };
     }, [config.model, config.channels, settings.mode]);
+    useEffect(() => {
+        requestRef.current?.abort(); setNextPage(undefined); setBusy(false);
+    }, [query]);
     const load = async (append = false) => {
         requestRef.current?.abort();
         const controller = new AbortController(); requestRef.current = controller; setBusy(true);
         try {
-            const result = await listGeminiVoices(config, { search: search || undefined, language_code: language || undefined, type: settings.mode === "dialogue" ? "prebuilt" : filters.type || undefined, gender: filters.gender || undefined, pitch: filters.pitch || undefined, accent: filters.accent || undefined, context: filters.context || undefined, page_token: append ? nextPage : undefined }, controller.signal);
+            const result = await listGeminiVoices(config, { search: search.trim() || undefined, language_code: language.trim() || undefined, type: settings.mode === "dialogue" ? "prebuilt" : filters.type || undefined, gender: filters.gender || undefined, pitch: filters.pitch || undefined, accent: filters.accent.trim() || undefined, context: filters.context.trim() || undefined, page_token: append && loadedQuery === query ? nextPage : undefined }, controller.signal);
             if (controller.signal.aborted) return;
-            setVoices((prev) => append ? [...prev, ...(result.voices || [])] : result.voices || []); setNextPage(result.next_page_token);
+            setVoices((prev) => append && loadedQuery === query ? [...prev, ...(result.voices || [])] : result.voices || []); setNextPage(result.next_page_token); setLoaded(true); setLoadedQuery(query);
         } catch (error) { if (!controller.signal.aborted) message.error(error instanceof Error ? error.message : "音色库读取失败"); }
         finally { if (!controller.signal.aborted) setBusy(false); }
     };
@@ -93,13 +172,22 @@ function GeminiVoicePicker({ config, settings, onChange }: { config: AiConfig; s
             finally { if (!controller.signal.aborted) setBusy(false); }
         },
     }); };
-    const options = [...new Map([...geminiVoiceOptions, ...voices.filter((voice) => settings.mode !== "dialogue" || voice.type === "prebuilt").map((voice) => ({ value: voice.id, label: `${voice.display_name || voice.id}${voice.language_code ? ` · ${voice.language_code}` : ""}` }))].map((item) => [item.value, item])).values()];
+    const catalog: GeminiVoice[] = [...new Map([...(loaded ? [] : geminiVoiceOptions.map((item) => ({ id: item.value, display_name: item.value, description: item.label, type: "prebuilt" }))), ...voices].map((voice) => [voice.id, voice])).values()];
+    const matches = catalog.filter((voice) => {
+        if (settings.mode === "dialogue" && voice.type !== "prebuilt") return false;
+        const needle = search.trim().toLocaleLowerCase();
+        if (needle && !`${voice.id} ${voice.display_name || ""} ${voice.description || ""}`.toLocaleLowerCase().includes(needle)) return false;
+        const criteria = { ...filters, language_code: language, ...(settings.mode === "dialogue" ? { type: "prebuilt" } : {}) };
+        return Object.entries(criteria).every(([key, value]) => !value.trim() || String(voice[key as keyof GeminiVoice] || "").toLocaleLowerCase() === value.trim().toLocaleLowerCase());
+    });
+    const options = matches.map((voice) => ({ value: voice.id, label: `${voice.display_name || voice.id}${voice.language_code ? ` · ${voice.language_code}` : ""}` }));
     const voiceField = (key: "voice" | "secondVoice", title: string) => <label className="block space-y-1.5 text-xs"><span>{title}</span><Select className="w-full" showSearch optionFilterProp="label" value={settings[key]} options={options} onChange={(value) => onChange({ ...settings, [key]: value })} /></label>;
     return <div className="space-y-3">
         {voiceField("voice", settings.mode === "dialogue" ? "说话人一音色" : "音色")}
         {settings.mode === "dialogue" ? voiceField("secondVoice", "说话人二音色") : <label className="block space-y-1.5 text-xs"><span>也可手动填写官方音色ID</span><Input value={settings.voice} placeholder="预设名称、voice_… 或 voicekey_…" onChange={(event) => onChange({ ...settings, voice: event.target.value })} /></label>}
         <details className="text-xs"><summary className="cursor-pointer py-1">官方音色库／自定义音色</summary><div className="mt-2 space-y-2">
-            <Input value={search} placeholder="搜索音色名称或描述" onChange={(event) => { setSearch(event.target.value); setNextPage(undefined); }} />
+            <Input value={search} placeholder="输入即筛选已加载音色，回车搜索官方库" onChange={(event) => setSearch(event.target.value)} onPressEnter={() => void load()} />
+            <p className="leading-5 opacity-70">{loaded ? `官方库已加载 ${voices.length} 个，当前匹配 ${options.length} 个。` : `当前匹配 ${options.length} 个预设音色。`}{loadedQuery !== query ? " 点击搜索官方库可获取当前条件下的完整分页结果。" : " 可在上方音色下拉框选择结果。"}</p>
             <Input value={language} placeholder="音色库／创建音色的语言，如 zh-CN" onChange={(event) => { setLanguage(event.target.value); setNextPage(undefined); }} />
             <div className="grid grid-cols-2 gap-2">
                 <Select value={filters.gender} onChange={(value) => { setFilters((prev) => ({ ...prev, gender: value })); setNextPage(undefined); }} options={[{ value: "", label: "不限声线性别" }, { value: "female", label: "女性声线" }, { value: "male", label: "男性声线" }, { value: "neutral", label: "中性声线" }]} />
@@ -108,7 +196,7 @@ function GeminiVoicePicker({ config, settings, onChange }: { config: AiConfig; s
             <Input value={filters.accent} placeholder="口音筛选（官方值，如 British）" onChange={(event) => { setFilters((prev) => ({ ...prev, accent: event.target.value })); setNextPage(undefined); }} />
             <Input value={filters.context} placeholder="用途筛选（如 Audiobook、News）" onChange={(event) => { setFilters((prev) => ({ ...prev, context: event.target.value })); setNextPage(undefined); }} />
             {settings.mode === "single" ? <Select className="w-full" value={filters.type} onChange={(value) => { setFilters((prev) => ({ ...prev, type: value })); setNextPage(undefined); }} options={[{ value: "", label: "全部音色来源" }, { value: "prebuilt", label: "官方预设" }, { value: "prompted", label: "文字设计音色" }, { value: "replicated", label: "授权复刻音色" }]} /> : null}
-            <div className="flex gap-2"><Button size="small" loading={busy} onClick={() => load()}>获取音色库</Button>{nextPage ? <Button size="small" disabled={busy} onClick={() => load(true)}>加载下一页</Button> : null}</div>
+            <div className="flex gap-2"><Button size="small" loading={busy} onClick={() => load()}>{search.trim() || loaded ? "搜索官方音色库" : "获取音色库"}</Button>{nextPage && loadedQuery === query ? <Button size="small" disabled={busy} onClick={() => load(true)}>加载下一页</Button> : null}</div>
             {settings.mode === "single" ? <>
                 <Select className="w-full" value={voiceType} onChange={setVoiceType} options={[{ value: "prompted", label: "用文字设计新音色" }, { value: "replicated", label: "用授权录音复刻音色" }]} />
                 <Input value={name} placeholder="自定义音色名称" onChange={(event) => setName(event.target.value)} />

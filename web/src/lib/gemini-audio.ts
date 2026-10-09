@@ -1,3 +1,5 @@
+import type { ReferenceAudio } from "@/types/media";
+
 // https://ai.google.dev/gemini-api/docs/speech-generation
 // https://ai.google.dev/gemini-api/docs/music-generation
 export type GeminiAudioSettings = {
@@ -20,7 +22,27 @@ export type GeminiAudioSettings = {
     musicKey?: string;
     musicDuration?: string;
     musicLyrics?: string;
+    replicationSourceNodeId?: string;
+    replicationConsentNodeId?: string;
+    replication?: { voiceId: string; channelId: string; sourceNodeId: string; consentNodeId: string; sourceKey: string; consentKey: string };
 };
+
+export type GeminiAudioReference = { nodeId: string; title: string; audio: ReferenceAudio };
+
+export function geminiAudioReferenceKey(reference: GeminiAudioReference) {
+    return reference.audio.storageKey || reference.audio.url;
+}
+
+export function resolveGeminiReferenceVoice(settings: GeminiAudioSettings, references: GeminiAudioReference[], channelId: string): GeminiAudioSettings {
+    if (!references.length) return settings;
+    const replication = settings.replication;
+    const source = references.find((item) => item.nodeId === (settings.replicationSourceNodeId || (references.length === 1 ? references[0].nodeId : "")));
+    const consent = references.find((item) => item.nodeId === settings.replicationConsentNodeId);
+    if (!replication || !source || !consent || source.nodeId === consent.nodeId || replication.channelId !== channelId || replication.sourceNodeId !== source.nodeId || replication.consentNodeId !== consent.nodeId || replication.sourceKey !== geminiAudioReferenceKey(source) || replication.consentKey !== geminiAudioReferenceKey(consent)) {
+        throw new Error("已连接音频参考：请在音频参数中指定参考录音和本人授权录音，完成授权音色创建后再生成台词。更换录音或渠道后需重新创建。");
+    }
+    return { ...settings, mode: "single", voice: replication.voiceId };
+}
 
 export function geminiAudioCapabilities(model: string) {
     const name = model.toLowerCase().split("::").pop()!.replace(/^models\//, "");
