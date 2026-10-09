@@ -34,7 +34,7 @@ import { CanvasNodeSplitDialog, type CanvasImageSplitParams } from "@/components
 import { CanvasNodeUpscaleDialog, type CanvasImageUpscaleParams } from "@/components/canvas/canvas-node-upscale-dialog";
 import { buildNodeGenerationContext, buildNodeGenerationInputs, buildNodeResponseMessages, hydrateNodeGenerationContext, type NodeGenerationInput } from "@/components/canvas/canvas-node-generation";
 import { CanvasNodeHoverToolbar, CanvasNodeInfoModal } from "@/components/canvas/canvas-node-hover-toolbar";
-import { CanvasSelectionToolbar } from "@/components/canvas/canvas-selection-toolbar";
+import { CanvasSelectionToolbar, SELECTION_PAD } from "@/components/canvas/canvas-selection-toolbar";
 import { InfiniteCanvas } from "@/components/canvas/infinite-canvas";
 import { Minimap } from "@/components/canvas/canvas-mini-map";
 import { CanvasNode } from "@/components/canvas/canvas-node";
@@ -195,6 +195,8 @@ function InfiniteCanvasPage() {
         hasMoved: boolean;
         startX: number;
         startY: number;
+        startWorld: Position;
+        pointer: Position;
         // Keyed by node id so drag frames look positions up in O(1) instead of scanning the array per node.
         initialSelectedNodes: Map<string, { x: number; y: number }>;
         movedIds: Set<string>;
@@ -203,6 +205,8 @@ function InfiniteCanvasPage() {
         hasMoved: false,
         startX: 0,
         startY: 0,
+        startWorld: { x: 0, y: 0 },
+        pointer: { x: 0, y: 0 },
         initialSelectedNodes: new Map(),
         movedIds: new Set(),
     });
@@ -1223,6 +1227,42 @@ function InfiniteCanvasPage() {
         }
     }, [message, projectId, t]);
 
+    const scheduleNodeDragFrame = useCallback(() => {
+        if (rafRef.current !== null) return;
+        let previousTime = performance.now();
+        const frame = (time: number) => {
+            rafRef.current = null;
+            const drag = dragRef.current;
+            const rect = containerRef.current?.getBoundingClientRect();
+            if (!drag.isDraggingNode || !drag.hasMoved || !rect) return;
+            // Edge velocity is in screen pixels, independent of zoom. Keep ticking when the pointer stops.
+            const edge = 48;
+            const velocity = (point: number, min: number, max: number) => point < min + edge ? min + edge - point : point > max - edge ? max - edge - point : 0;
+            const elapsed = Math.max(0, time - previousTime) / 1000;
+            previousTime = time;
+            const vx = velocity(drag.pointer.x, rect.left, rect.right);
+            const vy = velocity(drag.pointer.y, rect.top, rect.bottom);
+            if (vx || vy) {
+                const current = viewportRef.current;
+                const next = { ...current, x: current.x + vx * 10 * elapsed, y: current.y + vy * 10 * elapsed };
+                viewportRef.current = next;
+                setViewport(next);
+            }
+            const world = screenToCanvas(drag.pointer.x, drag.pointer.y);
+            const dx = world.x - drag.startWorld.x;
+            const dy = world.y - drag.startWorld.y;
+            const moveNode = (node: CanvasNodeData) => {
+                const initial = drag.initialSelectedNodes.get(node.id);
+                return initial ? { ...node, position: { x: initial.x + dx, y: initial.y + dy } } : node;
+            };
+            const previewNodes = nodesRef.current.map(moveNode);
+            setDropTargetGroupId(findGroupDropTarget(drag.movedIds, previewNodes)?.id || null);
+            setNodes((prev) => prev.map(moveNode));
+            if (vx || vy) rafRef.current = requestAnimationFrame(frame);
+        };
+        rafRef.current = requestAnimationFrame(frame);
+    }, [screenToCanvas]);
+
     const startSelectedNodeDrag = useCallback((event: { clientX: number; clientY: number }, selectedIds: Set<string>) => {
         const currentNodes = nodesRef.current;
         const dragIds = new Set(selectedIds);
@@ -1239,13 +1279,15 @@ function InfiniteCanvasPage() {
             hasMoved: false,
             startX: event.clientX,
             startY: event.clientY,
+            startWorld: screenToCanvas(event.clientX, event.clientY),
+            pointer: { x: event.clientX, y: event.clientY },
             initialSelectedNodes,
             movedIds: new Set(initialSelectedNodes.keys()),
         };
         historyPausedRef.current = true;
         nodeDraggingRef.current = true;
         setIsNodeDragging(true);
-    }, []);
+    }, [screenToCanvas]);
 
     const handleCanvasMouseDown = useCallback(
         (event: ReactPointerEvent<HTMLDivElement>) => {
@@ -1261,7 +1303,8 @@ function InfiniteCanvasPage() {
             const selected = nodesRef.current.filter((node) => selectedNodeIdsRef.current.has(node.id));
             if (!event.shiftKey && selected.length > 1) {
                 const bounds = nodeBounds(selected);
-                const isInsideSelection = world.x >= bounds.left && world.x <= bounds.right && world.y >= bounds.top && world.y <= bounds.bottom;
+                const pad = SELECTION_PAD / viewportRef.current.k;
+                const isInsideSelection = world.x >= bounds.left - pad && world.x <= bounds.right + pad && world.y >= bounds.top - pad && world.y <= bounds.bottom + pad;
                 if (isInsideSelection) {
                     startSelectedNodeDrag(event, new Set(selectedNodeIdsRef.current));
                     setSelectedConnectionId(null);
@@ -1337,9 +1380,9 @@ function InfiniteCanvasPage() {
 
         const wasClick = !dragRef.current.hasMoved && dragRef.current.initialSelectedNodes.size === 1;
         const clickedNodeId = dragRef.current.initialSelectedNodes.keys().next().value;
-        const currentViewport = viewportRef.current;
-        const dx = clientX == null ? 0 : (clientX - dragRef.current.startX) / currentViewport.k;
-        const dy = clientY == null ? 0 : (clientY - dragRef.current.startY) / currentViewport.k;
+        const world = screenToCanvas(clientX ?? dragRef.current.pointer.x, clientY ?? dragRef.current.pointer.y);
+        const dx = world.x - dragRef.current.startWorld.x;
+        const dy = world.y - dragRef.current.startWorld.y;
         const initialPositions = dragRef.current.initialSelectedNodes;
         const movedIds = dragRef.current.movedIds;
 
@@ -1347,7 +1390,7 @@ function InfiniteCanvasPage() {
         nodeDraggingRef.current = false;
         setIsNodeDragging(false);
         setDropTargetGroupId(null);
-        if (dragRef.current.hasMoved && clientX != null && clientY != null) {
+        if (dragRef.current.hasMoved) {
             setNodes((prev) => {
                 const moved = prev.map((node) => {
                     const initial = initialPositions.get(node.id);
@@ -1378,40 +1421,10 @@ function InfiniteCanvasPage() {
                 setDialogNodeId(clickedNodeId);
             }
         }
-    }, []);
+    }, [screenToCanvas]);
 
     const handleGlobalMouseMove = useCallback(
         (event: MouseEvent) => {
-            const currentViewport = viewportRef.current;
-
-            if (dragRef.current.isDraggingNode) {
-                const dx = (event.clientX - dragRef.current.startX) / currentViewport.k;
-                const dy = (event.clientY - dragRef.current.startY) / currentViewport.k;
-                const initialPositions = dragRef.current.initialSelectedNodes;
-                const movedIds = dragRef.current.movedIds;
-                if (Math.abs(event.clientX - dragRef.current.startX) > 3 || Math.abs(event.clientY - dragRef.current.startY) > 3) {
-                    dragRef.current.hasMoved = true;
-                }
-
-                // Drop-target detection and node updates both run once per frame; mousemove can fire far more often than the display refreshes.
-                if (rafRef.current) cancelAnimationFrame(rafRef.current);
-                rafRef.current = requestAnimationFrame(() => {
-                    const previewNodes = nodesRef.current.map((node) => {
-                        const initial = initialPositions.get(node.id);
-                        return initial ? { ...node, position: { x: initial.x + dx, y: initial.y + dy } } : node;
-                    });
-                    setDropTargetGroupId(findGroupDropTarget(movedIds, previewNodes)?.id || null);
-                    setNodes((prev) =>
-                        prev.map((node) => {
-                            const initial = initialPositions.get(node.id);
-                            return initial ? { ...node, position: { x: initial.x + dx, y: initial.y + dy } } : node;
-                        }),
-                    );
-                    rafRef.current = null;
-                });
-                return;
-            }
-
             if (connectingParamsRef.current && !pendingConnectionCreateRef.current) {
                 const dropTarget = getConnectionDropTarget(event.clientX, event.clientY, connectingParamsRef.current);
                 connectionTargetNodeIdRef.current = dropTarget.nodeId;
@@ -1419,11 +1432,22 @@ function InfiniteCanvasPage() {
                 setMouseWorld(screenToCanvas(event.clientX, event.clientY));
             }
         },
-        [finishNodeDrag, getConnectionDropTarget, screenToCanvas],
+        [getConnectionDropTarget, screenToCanvas],
     );
 
     const handleGlobalPointerMove = useCallback(
         (event: PointerEvent) => {
+            const drag = dragRef.current;
+            if (drag.isDraggingNode) {
+                if (event.buttons === 0) {
+                    finishNodeDrag(event.clientX, event.clientY);
+                    return;
+                }
+                drag.pointer = { x: event.clientX, y: event.clientY };
+                if (Math.abs(event.clientX - drag.startX) > 3 || Math.abs(event.clientY - drag.startY) > 3) drag.hasMoved = true;
+                scheduleNodeDragFrame();
+                return;
+            }
             const currentSelection = selectionBoxRef.current;
             if (!currentSelection) return;
 
@@ -1452,7 +1476,7 @@ function InfiniteCanvasPage() {
             setSelectionBox(nextSelectionBox);
             setSelectedNodeIds(nextSelected);
         },
-        [screenToCanvas],
+        [finishNodeDrag, scheduleNodeDragFrame, screenToCanvas],
     );
 
     const handleGlobalMouseUp = useCallback(
@@ -1491,6 +1515,8 @@ function InfiniteCanvasPage() {
         window.addEventListener("blur", cancelNodeDrag);
         window.addEventListener("pointermove", handleGlobalPointerMove);
         return () => {
+            if (rafRef.current !== null) cancelAnimationFrame(rafRef.current);
+            rafRef.current = null;
             window.removeEventListener("mousemove", handleGlobalMouseMove);
             window.removeEventListener("mouseup", handleGlobalMouseUp);
             window.removeEventListener("pointerup", handlePointerUp);

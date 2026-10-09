@@ -8,7 +8,7 @@ import { nodeBounds } from "@/lib/canvas/canvas-node-geometry";
 import { useThemeStore } from "@/stores/use-theme-store";
 import type { CanvasNodeData, ViewportTransform } from "@/types/canvas";
 
-const SELECTION_PAD = 14;
+export const SELECTION_PAD = 14;
 const MIN_SELECTION_SIZE = 72;
 type ResizeCorner = "top-left" | "top-right" | "bottom-left" | "bottom-right";
 type SelectionBounds = { left: number; top: number; right: number; bottom: number };

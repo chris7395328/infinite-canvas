@@ -5,6 +5,8 @@ description: 当前版本已实现但仍需人工验证的变更项
 
 # 待测试
 
+- 多选空白拖动与边缘平移：可从多选框内部空白及边框内留白整体拖动，选集与拖动其中一个已选节点一致；Shift 拖动仍为追加框选，缩放柄、连线柄及节点编辑区操作不变。单节点、多选、整组及组内成员拖到画布视口边缘 48 屏幕像素内时，四向及斜向自动平移，越靠近或越过边缘越快，指针停住仍持续滚动，回到中间立即停止。请分别在不同缩放下验证松手/窗口失焦/指针取消/离开页面后停止、节点无漂移、落点与预览一致、入组/出组以及整次拖动的一步撤销/重做。按仓库规则未运行本地构建，浏览器实测待验收。
+
 - Gemini 生图参数：官方 Gemini 渠道拉取或手动添加 `gemini-nano-banana-2.1` 并设为生图后，画布与工作台应显示 1K/2K/4K、自动及 14 种官方比例、自动/最少/中/高思考；自动思考省略请求字段，由 2.1 默认 medium 决定。原 Nano Banana 2 (`gemini-3.1-flash-image`，含 preview) 保留 512 与 minimal/high；3/3.1 Pro Image 为 1K/2K/4K、10 种比例，无可配置思考档；Flash Lite 保守按文档说明只提供 1K、10 种比例、minimal/high；2.5 Flash Image 不发送 imageSize/thinkingConfig。切换模型时不支持的设置在 UI 和请求层分别回退到 1K/自动，不改写已保存模型 ID。
 - Gemini/GPT 隔离：Gemini 不显示 GPT 质量、任意像素尺寸、16 倍数对齐或透明背景；原质量/尺寸不再映射为 Gemini 分辨率，新独立字段缺省为 1K/自动比例/自动思考，旧节点需要重新选择想要的 Gemini 参数。原生请求使用 generationConfig.imageConfig / thinkingConfig，忽略 thought 中间图。切回 GPT 原配置保持；Gemini 误设为 OpenAI 格式且无自定义脚本时明确提示正确格式，避免静默忽略专属设置。自定义脚本参数改用 params.generationConfig/count，已保存旧脚本需按更新后的 Gemini 模板手动调整，不能覆盖用户脚本。新节点、素材副本、重试及工作台历史回放需保留参数；真实模型调用与群晖 UI 待用户验收，未使用私人 Key 或发起收费生成。
 - 官方依据：[Nano Banana 2.1](https://ai.google.dev/gemini-api/docs/models/gemini-nano-banana-2.1)、[GenerateContent 生图](https://ai.google.dev/gemini-api/docs/generate-content/image-generation)。Google 推荐新项目以 2.1 替代 Nano Banana 2，不表示旧模型即时停用；Flash Lite 的表格与正文对 512 支持存在差异，当前采用正文明确的 1K 限制。Google 搜索 grounding、多轮会话及 thought signature 回传未在本次新增。
