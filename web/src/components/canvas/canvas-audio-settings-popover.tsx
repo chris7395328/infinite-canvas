@@ -1,10 +1,11 @@
-import { useEffect, useRef, useState, type RefObject } from "react";
+import { useContext, useEffect, useRef, useState, type RefObject } from "react";
 import { createPortal } from "react-dom";
 import { Settings2 } from "lucide-react";
 import { Button, ConfigProvider } from "antd";
 
 import { AudioSettingsPanel, type AudioSettingKey, type AudioSettingValue } from "@/components/audio-settings-panel";
-import { geminiAudioSummary } from "@/lib/gemini-audio";
+import { geminiAudioCapabilities, geminiAudioSummary } from "@/lib/gemini-audio";
+import { CanvasAudioInputsContext } from "./canvas-audio-inputs";
 import { audioFormatLabel, audioSpeedLabel, audioVoiceLabel } from "@/lib/audio-generation";
 import { canvasThemes } from "@/lib/canvas-theme";
 import { useThemeStore } from "@/stores/use-theme-store";
@@ -21,6 +22,7 @@ type CanvasAudioSettingsPopoverProps = {
 
 export function CanvasAudioSettingsPopover({ config, onConfigChange, buttonClassName, placement = "topLeft" }: CanvasAudioSettingsPopoverProps) {
     const theme = canvasThemes[useThemeStore((state) => state.theme)];
+    const audioInputs = useContext(CanvasAudioInputsContext);
     const buttonRef = useRef<HTMLSpanElement>(null);
     const panelRef = useRef<HTMLDivElement>(null);
     const [open, setOpen] = useState(false);
@@ -54,7 +56,7 @@ export function CanvasAudioSettingsPopover({ config, onConfigChange, buttonClass
             <span ref={buttonRef} className="inline-flex min-w-0">
                 <Button size="small" type="text" className={buttonClassName || "!h-8 !max-w-[170px] !justify-start !rounded-full !px-2.5"} style={{ background: theme.node.fill, color: theme.node.text }} icon={<Settings2 className="size-3.5" />} onClick={() => setOpen((current) => !current)}>
                     <span className="truncate">
-                        {geminiAudioSummary(config.model || config.audioModel, config.geminiAudio) || `${audioVoiceLabel(config.audioVoice)} · ${audioFormatLabel(config.audioFormat)} · ${audioSpeedLabel(config.audioSpeed)}`}
+                        {audioInputs.length && geminiAudioCapabilities(config.model || config.audioModel)?.kind === "tts" ? "授权音色复刻" : geminiAudioSummary(config.model || config.audioModel, config.geminiAudio) || `${audioVoiceLabel(config.audioVoice)} · ${audioFormatLabel(config.audioFormat)} · ${audioSpeedLabel(config.audioSpeed)}`}
                     </span>
                 </Button>
             </span>

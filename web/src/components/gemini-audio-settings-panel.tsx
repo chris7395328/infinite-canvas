@@ -128,11 +128,7 @@ function GeminiVoicePicker({ config, settings, onChange }: { config: AiConfig; s
     const [busy, setBusy] = useState(false);
     const [name, setName] = useState("");
     const [description, setDescription] = useState("");
-    const [source, setSource] = useState<File>();
-    const [consent, setConsent] = useState<File>();
-    const [authorized, setAuthorized] = useState(false);
     const [sample, setSample] = useState("");
-    const [voiceType, setVoiceType] = useState("prompted");
     const requestRef = useRef<AbortController | null>(null);
     const confirmationRef = useRef<{ destroy: () => void } | null>(null);
     const query = JSON.stringify([search.trim(), language.trim(), filters]);
@@ -154,7 +150,7 @@ function GeminiVoicePicker({ config, settings, onChange }: { config: AiConfig; s
         finally { if (!controller.signal.aborted) setBusy(false); }
     };
     const create = () => { confirmationRef.current = modal.confirm({
-        title: voiceType === "replicated" ? "确认上传并复刻本人授权的声音？" : "确认在Google项目中创建音色？",
+        title: "确认在Google项目中创建音色？",
         content: "此操作会调用Google官方音色接口，可能计费；描述或录音会上传到Google，并在Google项目保存自定义音色（官方默认一年未使用自动删除）。浏览器本地只保存使用的音色ID。",
         okText: "确认创建", cancelText: "取消",
         onCancel: () => { requestRef.current?.abort(); setBusy(false); },
@@ -162,11 +158,10 @@ function GeminiVoicePicker({ config, settings, onChange }: { config: AiConfig; s
             requestRef.current?.abort();
             const controller = new AbortController(); requestRef.current = controller; setBusy(true);
             try {
-                const voice = await createGeminiVoice(config, { name, description, language, source: voiceType === "replicated" ? source : undefined, consent: voiceType === "replicated" ? consent : undefined }, controller.signal);
+                const voice = await createGeminiVoice(config, { name, description, language }, controller.signal);
                 if (controller.signal.aborted) return;
                 setVoices((prev) => [voice, ...prev]); onChange({ ...settings, voice: voice.id });
                 setSample(voice.sample_audio?.data ? `data:${voice.sample_audio.mime_type || "audio/wav"};base64,${voice.sample_audio.data}` : "");
-                setSource(undefined); setConsent(undefined); setAuthorized(false);
                 message.success("音色创建成功，已应用到当前节点");
             } catch (error) { if (!controller.signal.aborted) { message.error(error instanceof Error ? error.message : "音色创建失败"); throw error; } }
             finally { if (!controller.signal.aborted) setBusy(false); }
@@ -198,15 +193,11 @@ function GeminiVoicePicker({ config, settings, onChange }: { config: AiConfig; s
             {settings.mode === "single" ? <Select className="w-full" value={filters.type} onChange={(value) => { setFilters((prev) => ({ ...prev, type: value })); setNextPage(undefined); }} options={[{ value: "", label: "全部音色来源" }, { value: "prebuilt", label: "官方预设" }, { value: "prompted", label: "文字设计音色" }, { value: "replicated", label: "授权复刻音色" }]} /> : null}
             <div className="flex gap-2"><Button size="small" loading={busy} onClick={() => load()}>{search.trim() || loaded ? "搜索官方音色库" : "获取音色库"}</Button>{nextPage && loadedQuery === query ? <Button size="small" disabled={busy} onClick={() => load(true)}>加载下一页</Button> : null}</div>
             {settings.mode === "single" ? <>
-                <Select className="w-full" value={voiceType} onChange={setVoiceType} options={[{ value: "prompted", label: "用文字设计新音色" }, { value: "replicated", label: "用授权录音复刻音色" }]} />
+                <p className="leading-5">用文字设计新音色</p>
                 <Input value={name} placeholder="自定义音色名称" onChange={(event) => setName(event.target.value)} />
-                {voiceType === "prompted" ? <Input.TextArea value={description} autoSize={{ minRows: 3, maxRows: 6 }} placeholder="描述年龄感、音色、口音与角色气质，如温暖沉稳的中文男旁白" onChange={(event) => setDescription(event.target.value)} /> : <>
-                    <label className="block space-y-1"><span>参考录音（官方要求10–30秒干净自然人声）</span><input type="file" accept="audio/*" onChange={(event) => setSource(event.target.files?.[0])} /></label>
-                    <label className="block space-y-1"><span>同一说话人的本人授权录音（必填）</span><input type="file" accept="audio/*" onChange={(event) => setConsent(event.target.files?.[0])} /></label>
-                    <p className="leading-5 opacity-70">请由本人朗读官方授权声明，详见 <a href="https://ai.google.dev/gemini-api/docs/voice-replication" target="_blank" rel="noreferrer" className="underline">授权录音要求</a>。不支持用勾选框代替授权录音。</p>
-                    <Checkbox checked={authorized} onChange={(event) => setAuthorized(event.target.checked)}>确认声音本人同意并授权上传给Google</Checkbox>
-                </>}
-                <Button size="small" disabled={busy || !name.trim() || (voiceType === "prompted" ? !description.trim() : !source || !consent || !authorized)} onClick={create}>创建并应用音色</Button>
+                <Input.TextArea value={description} autoSize={{ minRows: 3, maxRows: 6 }} placeholder="描述年龄感、音色、口音与角色气质，如温暖沉稳的中文男旁白" onChange={(event) => setDescription(event.target.value)} />
+                <Button size="small" disabled={busy || !name.trim() || !description.trim()} onClick={create}>创建并应用音色</Button>
+                <p className="leading-5 opacity-70">要复刻本人音色，请把参考录音和本人授权录音作为两个音频节点连接到当前节点，参数会自动切换到授权复刻。不在这里重复上传文件。</p>
                 {sample ? <audio controls src={sample} className="h-9 w-full" /> : null}
             </> : <p className="leading-5 opacity-70">双人单次合成仅使用预设音色；自定义音色请分别使用单人节点生成。</p>}
         </div></details>
