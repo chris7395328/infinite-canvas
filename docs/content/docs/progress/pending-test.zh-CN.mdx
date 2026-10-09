@@ -5,6 +5,12 @@ description: 当前版本已实现但仍需人工验证的变更项
 
 # 待测试
 
+- Gemini 音频节点：Gemini 格式渠道选择 `gemini-3.8-flash-tts`／`gemini-3.8-flash-lite-tts`，中文界面应使用单人／双人、30种预设音色、官方音色库分页筛选、手动音色ID、说话人名称、分别及逐句表演风格、语言、WAV／L16／μ-law／A-law和采样率（默认24kHz），不显示GPT音色或数值语速。正文逐字朗读，引用文字或文字节点时不能朗读内部参考标签；双人每行使用「甲：台词」「乙：台词」或「甲[轻声]：台词」，自定义音色不能用于官方仅支持预设音色的双人单次合成。请求应发送到 Interactions，使用 speech_metadata，而非 OpenAI speech 接口。
+- 音色库可按名称、语言、性别、音高、口音、用途和来源筛选并加载下一页。创建音色必须单独确认Google上传、可能计费和远端项目存储；文字设计后获得可复用ID及可用时的WAV试听；复刻必须提供参考音频、同一说话人的官方授权声明录音并勾选本人授权，勾选不能替代Google验证。界面说明官方10–30秒参考录音要求，由Google最终验证；没有新增本地上传大小、并发、重试、超时或时长截断。音色与结果不能串渠道，不能把Key发送到无关下载域名；远端音色不是浏览器素材，清理本地文件不会删除它们。
+- Lyria 音乐：`lyria-3-clip-preview` 固定30秒／MP3；`lyria-3-pro-preview` 完整歌曲／MP3；`lyria-3.5` 完整歌曲／MP3或WAV。原Pro模型卡的模型代码与采样率存在文档冲突，不猜测可调采样率、不偷偷替换ID；Google推荐迁移3.5但未宣布旧Pro停用。曲风、情绪、乐器、BPM、调性、期望时长及分段歌词明确作为提示词创作指令，不承诺精确数值控制；纯音乐不发送指定歌词。连接的图片必须实际上传作为音乐灵感；结果歌词／结构和任务ID随节点保存，并可展开查看；不暗示支持参考音频续写或多轮音乐编辑。
+- 验证普通节点／配置节点／复制／重试的参数快照、刷新保存与导出、取消、预览、实际下载格式。原始PCM及电话编码不伪装成MP3或WAV，浏览器可能不支持预览；Gemini自定义脚本使用 params.geminiAudio／requestBody／images，不覆盖用户已有脚本，原非Gemini音频链路不变。本次为完整音频素材生成，未增加边生成边播放、多轮会话或远端音色删除管理。按仓库规则未执行本地构建／类型检查，未读取私人Key或发起付费生成，真实生成、授权验证及群晖界面仍待验收。
+- 官方依据：[语音合成](https://ai.google.dev/gemini-api/docs/speech-generation)、[音乐生成](https://ai.google.dev/gemini-api/docs/music-generation)、[音色设计](https://ai.google.dev/gemini-api/docs/voice-design)、[授权复刻](https://ai.google.dev/gemini-api/docs/voice-replication)、[Interactions](https://ai.google.dev/api/interactions)、[Voices](https://ai.google.dev/api/voices)。
+
 - 多选空白拖动与边缘平移：可从多选框内部空白及边框内留白整体拖动，选集与拖动其中一个已选节点一致；Shift 拖动仍为追加框选，缩放柄、连线柄及节点编辑区操作不变。单节点、多选、整组及组内成员拖到画布视口边缘 48 屏幕像素内时，四向及斜向自动平移，越靠近或越过边缘越快，指针停住仍持续滚动，回到中间立即停止。请分别在不同缩放下验证松手/窗口失焦/指针取消/离开页面后停止、节点无漂移、落点与预览一致、入组/出组以及整次拖动的一步撤销/重做。按仓库规则未运行本地构建，浏览器实测待验收。
 
 - Gemini 生图参数：官方 Gemini 渠道拉取或手动添加 `gemini-nano-banana-2.1` 并设为生图后，画布与工作台应显示 1K/2K/4K、自动及 14 种官方比例、自动/最少/中/高思考；自动思考省略请求字段，由 2.1 默认 medium 决定。原 Nano Banana 2 (`gemini-3.1-flash-image`，含 preview) 保留 512 与 minimal/high；3/3.1 Pro Image 为 1K/2K/4K、10 种比例，无可配置思考档；Flash Lite 保守按文档说明只提供 1K、10 种比例、minimal/high；2.5 Flash Image 不发送 imageSize/thinkingConfig。切换模型时不支持的设置在 UI 和请求层分别回退到 1K/自动，不改写已保存模型 ID。

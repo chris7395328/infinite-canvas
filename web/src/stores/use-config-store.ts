@@ -51,6 +51,7 @@ export type SeedanceConfig = {
 };
 
 export type AiConfig = {
+    geminiAudio?: import("@/lib/gemini-audio").GeminiAudioSettings;
     channelMode: "remote" | "local";
     baseUrl: string;
     apiKey: string;

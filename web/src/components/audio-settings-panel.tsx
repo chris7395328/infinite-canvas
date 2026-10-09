@@ -5,14 +5,17 @@ import { ImageSettingsTheme } from "@/components/image-settings-panel";
 import { audioFormatOptions, audioSpeedLabel, audioVoiceOptions, normalizeAudioFormatValue, normalizeAudioSpeedValue, normalizeAudioVoiceValue } from "@/lib/audio-generation";
 import { type CanvasTheme } from "@/lib/canvas-theme";
 import type { AiConfig } from "@/stores/use-config-store";
+import { geminiAudioCapabilities, type GeminiAudioSettings } from "@/lib/gemini-audio";
+import { GeminiAudioSettingsPanel } from "@/components/gemini-audio-settings-panel";
 
 const speedOptions = ["0.75", "1", "1.25", "1.5"];
 
-type AudioSettingKey = "audioVoice" | "audioFormat" | "audioSpeed" | "audioInstructions";
+export type AudioSettingKey = "audioVoice" | "audioFormat" | "audioSpeed" | "audioInstructions" | "geminiAudio";
+export type AudioSettingValue = string | GeminiAudioSettings;
 
 type AudioSettingsPanelProps = {
     config: AiConfig;
-    onConfigChange: (key: AudioSettingKey, value: string) => void;
+    onConfigChange: (key: AudioSettingKey, value: AudioSettingValue) => void;
     theme: CanvasTheme;
     showTitle?: boolean;
     className?: string;
@@ -23,6 +26,8 @@ export function AudioSettingsPanel({ config, onConfigChange, theme, showTitle = 
     const voice = normalizeAudioVoiceValue(config.audioVoice);
     const format = normalizeAudioFormatValue(config.audioFormat);
     const speed = normalizeAudioSpeedValue(config.audioSpeed);
+
+    if (geminiAudioCapabilities(config.model || config.audioModel)) return <ImageSettingsTheme theme={theme}><div className={className} style={{ color: theme.node.text }} onMouseDown={(event) => event.stopPropagation()}>{showTitle ? <div className="mb-3 text-base font-semibold">{geminiAudioCapabilities(config.model || config.audioModel)?.kind === "music" ? "音乐生成设置" : "语音合成设置"}</div> : null}<GeminiAudioSettingsPanel config={config} onChange={(value) => onConfigChange("geminiAudio", value)} /></div></ImageSettingsTheme>;
 
     return (
         <ImageSettingsTheme theme={theme}>

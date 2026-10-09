@@ -5,8 +5,11 @@ import { audioMimeType, normalizeAudioFormatValue, normalizeAudioSpeedValue, nor
 import { uploadMediaFile, type UploadedFile } from "@/services/file-storage";
 import { buildApiUrl, resolveModelRequestConfig, resolveModelScript, withLocalProxy, type AiConfig } from "@/stores/use-config-store";
 import { runModelPlugin } from "./model-plugin";
+import { buildGeminiAudioBody, requestGeminiAudio, type GeminiAudioResult } from "./gemini-audio";
+import { geminiAudioCapabilities, normalizeGeminiAudio } from "@/lib/gemini-audio";
+import type { ReferenceImage } from "@/types/image";
 
-type RequestOptions = { signal?: AbortSignal };
+type RequestOptions = { signal?: AbortSignal; images?: ReferenceImage[] };
 const apiText = (key: string, options?: Record<string, unknown>) => i18n.t(`apiErrors.${key}`, options);
 
 function aiApiUrl(config: AiConfig, path: string) {
@@ -20,10 +23,12 @@ function aiHeaders(config: AiConfig) {
     };
 }
 
-export async function requestAudioGeneration(config: AiConfig, prompt: string, options?: RequestOptions): Promise<Blob> {
+export async function requestAudioGeneration(config: AiConfig, prompt: string, options?: RequestOptions): Promise<Blob | GeminiAudioResult> {
     const requestConfig = resolveModelRequestConfig(config, config.model || config.audioModel);
     const model = requestConfig.model.trim();
-    const format = normalizeAudioFormatValue(config.audioFormat);
+    const gemini = geminiAudioCapabilities(model);
+    const settings = normalizeGeminiAudio(model, config.geminiAudio);
+    const format = gemini ? gemini.kind === "tts" ? settings.encoding : settings.musicFormat : normalizeAudioFormatValue(config.audioFormat);
     const script = resolveModelScript(config, config.model || config.audioModel);
     if (script) {
         if (!model) throw new Error(apiText("audioModelRequired"));
@@ -35,7 +40,7 @@ export async function requestAudioGeneration(config: AiConfig, prompt: string, o
                 script,
                 config: requestConfig,
                 prompt,
-                params: { voice: normalizeAudioVoiceValue(config.audioVoice), format, speed: normalizeAudioSpeedValue(config.audioSpeed), instructions: config.audioInstructions.trim() },
+                params: geminiAudioCapabilities(model) ? { geminiAudio: normalizeGeminiAudio(model, config.geminiAudio), requestBody: buildGeminiAudioBody(model, prompt, config.geminiAudio), images: options?.images || [] } : { voice: normalizeAudioVoiceValue(config.audioVoice), format, speed: normalizeAudioSpeedValue(config.audioSpeed), instructions: config.audioInstructions.trim() },
                 signal: options?.signal,
             });
             return await audioPluginBlob(result, format);
@@ -44,6 +49,13 @@ export async function requestAudioGeneration(config: AiConfig, prompt: string, o
         }
     }
     assertAudioConfig(requestConfig, model);
+    if (requestConfig.apiFormat === "gemini" || geminiAudioCapabilities(model)) {
+        try {
+            return await requestGeminiAudio(config, prompt, options);
+        } catch (error) {
+            throw new Error(readAxiosError(error, apiText("audioGenerationFailed")));
+        }
+    }
     const instructions = config.audioInstructions.trim();
 
     try {
@@ -80,16 +92,16 @@ async function audioPluginBlob(result: unknown, format: string): Promise<Blob> {
     return blob.type.startsWith("audio/") ? blob : new Blob([blob], { type: audioMimeType(format) });
 }
 
-export async function storeGeneratedAudio(blob: Blob, format = "mp3"): Promise<UploadedFile> {
+export async function storeGeneratedAudio(result: Blob | GeminiAudioResult, format = "mp3"): Promise<UploadedFile & { audioText?: string; audioInteractionId?: string }> {
+    const blob = result instanceof Blob ? result : result.blob;
     const audio = blob.type.startsWith("audio/") ? blob : new Blob([blob], { type: audioMimeType(format) });
-    return uploadMediaFile(audio, "audio");
+    return { ...await uploadMediaFile(audio, "audio"), ...(result instanceof Blob ? {} : { audioText: result.audioText, audioInteractionId: result.audioInteractionId }) };
 }
 
 function assertAudioConfig(config: AiConfig, model: string) {
     if (!model) throw new Error(apiText("audioModelRequired"));
     if (!config.baseUrl.trim()) throw new Error(apiText("baseUrlRequired"));
     if (!config.apiKey.trim()) throw new Error(apiText("apiKeyRequired"));
-    if (config.apiFormat === "gemini") throw new Error(apiText("geminiAudioUnsupported"));
 }
 
 async function assertAudioBlob(blob: Blob) {

@@ -175,6 +175,7 @@ function buildNodeConfig(globalConfig: AiConfig, node: CanvasNodeData, mode: Can
             formalResolution: node.metadata?.seedanceFormalResolution,
         },
         audioVoice: node.metadata?.audioVoice || globalConfig.audioVoice || defaultConfig.audioVoice,
+        geminiAudio: node.metadata?.geminiAudio ?? globalConfig.geminiAudio,
         audioFormat: node.metadata?.audioFormat || globalConfig.audioFormat || defaultConfig.audioFormat,
         audioSpeed: node.metadata?.audioSpeed || globalConfig.audioSpeed || defaultConfig.audioSpeed,
         audioInstructions: node.metadata?.audioInstructions || globalConfig.audioInstructions || defaultConfig.audioInstructions,
@@ -196,9 +197,6 @@ function videoConfigPatch(key: VideoSettingsKey, value: string): Partial<CanvasN
     return { [key]: value };
 }
 
-function audioConfigPatch(key: CanvasAudioSettingKey, value: string) {
-    if (key === "audioVoice") return { audioVoice: value };
-    if (key === "audioFormat") return { audioFormat: value };
-    if (key === "audioSpeed") return { audioSpeed: value };
-    return { audioInstructions: value };
+function audioConfigPatch(key: CanvasAudioSettingKey, value: string | import("@/lib/gemini-audio").GeminiAudioSettings): Partial<CanvasNodeMetadata> {
+    return key === "geminiAudio" ? { geminiAudio: value as import("@/lib/gemini-audio").GeminiAudioSettings } : { [key]: value as string };
 }

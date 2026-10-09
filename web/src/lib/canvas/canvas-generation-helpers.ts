@@ -14,6 +14,9 @@ export function imageExtension(dataUrl: string) {
 }
 
 export function audioExtension(mimeType?: string) {
+    if (mimeType?.includes("mulaw")) return "ulaw";
+    if (mimeType?.includes("alaw")) return "alaw";
+    if (mimeType?.includes("l16")) return "pcm";
     if (mimeType?.includes("wav")) return "wav";
     if (mimeType?.includes("opus")) return "opus";
     if (mimeType?.includes("aac")) return "aac";
@@ -131,6 +134,7 @@ export function buildGenerationConfig(config: AiConfig, node: CanvasNodeData | u
             formalResolution: node?.metadata?.seedanceFormalResolution,
         },
         audioVoice: node?.metadata?.audioVoice || config.audioVoice || defaultConfig.audioVoice,
+        geminiAudio: node?.metadata?.geminiAudio ?? config.geminiAudio,
         audioFormat: node?.metadata?.audioFormat || config.audioFormat || defaultConfig.audioFormat,
         audioSpeed: node?.metadata?.audioSpeed || config.audioSpeed || defaultConfig.audioSpeed,
         audioInstructions: node?.metadata?.audioInstructions || config.audioInstructions || defaultConfig.audioInstructions,

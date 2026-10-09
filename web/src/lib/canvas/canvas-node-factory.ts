@@ -1,6 +1,7 @@
 import { getNodeSpec, NODE_DEFAULT_SIZE } from "@/constant/canvas";
 import { nodeSizeFromRatio } from "@/lib/canvas/canvas-node-size";
 import { geminiImageCapabilities, normalizeGeminiImageSettings } from "@/lib/gemini-image";
+import { geminiAudioCapabilities, normalizeGeminiAudio } from "@/lib/gemini-audio";
 import type { AiConfig } from "@/stores/use-config-store";
 import type { UploadedImage } from "@/services/image-storage";
 import type { UploadedFile } from "@/services/file-storage";
@@ -33,8 +34,8 @@ export function videoMetadata(video: UploadedFile): CanvasNodeMetadata {
     return { content: video.url, storageKey: video.storageKey, status: "success", naturalWidth: video.width, naturalHeight: video.height, bytes: video.bytes, mimeType: video.mimeType || "video/mp4", durationMs: video.durationMs };
 }
 
-export function audioMetadata(audio: UploadedFile): CanvasNodeMetadata {
-    return { content: audio.url, storageKey: audio.storageKey, status: "success", bytes: audio.bytes, mimeType: audio.mimeType || "audio/mpeg", durationMs: audio.durationMs };
+export function audioMetadata(audio: UploadedFile & { audioText?: string; audioInteractionId?: string }): CanvasNodeMetadata {
+    return { content: audio.url, storageKey: audio.storageKey, status: "success", bytes: audio.bytes, mimeType: audio.mimeType || "audio/mpeg", durationMs: audio.durationMs, audioText: audio.audioText, audioInteractionId: audio.audioInteractionId };
 }
 
 export function referenceUrl(image: ReferenceImage) {
@@ -57,6 +58,7 @@ export function buildImageGenerationMetadata(type: CanvasImageGenerationType, co
 export function buildAudioGenerationMetadata(config: AiConfig): CanvasNodeMetadata {
     return {
         model: config.model,
+        ...(geminiAudioCapabilities(config.model) ? { geminiAudio: normalizeGeminiAudio(config.model, config.geminiAudio) } : {}),
         audioVoice: config.audioVoice,
         audioFormat: config.audioFormat,
         audioSpeed: config.audioSpeed,

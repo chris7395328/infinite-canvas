@@ -52,6 +52,9 @@ export function audioSpeedLabel(value: string) {
 }
 
 export function audioMimeType(format: string) {
+    if (format === "l16") return "audio/l16";
+    if (format === "mulaw") return "audio/mulaw";
+    if (format === "alaw") return "audio/alaw";
     if (format === "wav") return "audio/wav";
     if (format === "opus") return "audio/opus";
     if (format === "aac") return "audio/aac";

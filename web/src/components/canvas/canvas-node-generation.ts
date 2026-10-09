@@ -37,16 +37,16 @@ type NodeGenerationGroupInput = {
 
 export type NodeGenerationInput = NodeGenerationResourceInput | NodeGenerationGroupInput;
 
-export function buildNodeGenerationContext(nodeId: string, nodes: CanvasNodeData[], connections: CanvasConnection[], prompt: string): NodeGenerationContext {
+export function buildNodeGenerationContext(nodeId: string, nodes: CanvasNodeData[], connections: CanvasConnection[], prompt: string, verbatimText = false): NodeGenerationContext {
     const inputs = buildNodeGenerationInputs(nodeId, nodes, connections);
     const sourceNode = nodes.find((node) => node.id === nodeId);
     if (sourceNode?.type === CanvasNodeType.Config && Boolean(sourceNode.metadata?.composerContent?.trim())) {
-        return buildComposerGenerationContext(inputs, prompt);
+        return buildComposerGenerationContext(inputs, prompt, verbatimText);
     }
 
     const resourceInputs = flattenGenerationInputs(inputs);
     let textIndex = 0;
-    const upstreamText = resourceInputs.flatMap((input) => (input.text ? [textBlock(generationLabel("text", textIndex++), input.text)] : [])).join("\n\n");
+    const upstreamText = resourceInputs.flatMap((input) => (input.text ? [verbatimText ? input.text : textBlock(generationLabel("text", textIndex++), input.text)] : [])).join("\n\n");
     const referenceImages = resourceInputs.map((input) => input.image).filter((image): image is ReferenceImage => Boolean(image));
     const referenceVideos = resourceInputs.map((input) => input.video).filter((video): video is ReferenceVideo => Boolean(video));
     const referenceAudios = resourceInputs.map((input) => input.audio).filter((audio): audio is ReferenceAudio => Boolean(audio));
@@ -63,7 +63,7 @@ export function buildNodeGenerationContext(nodeId: string, nodes: CanvasNodeData
     };
 }
 
-function buildComposerGenerationContext(inputs: NodeGenerationInput[], prompt: string): NodeGenerationContext {
+function buildComposerGenerationContext(inputs: NodeGenerationInput[], prompt: string, verbatimText = false): NodeGenerationContext {
     const inputByNodeId = new Map(inputs.map((input) => [input.nodeId, input]));
     const selectedInputs: NodeGenerationResourceInput[] = [];
     const labelByNodeId = new Map<string, string>();
@@ -84,10 +84,11 @@ function buildComposerGenerationContext(inputs: NodeGenerationInput[], prompt: s
                 if (!label) {
                     label = generationLabel(resource.type, counts[resource.type]++);
                     labelByNodeId.set(resource.nodeId, label);
-                    if (resource.type === "text") textBlocks.push(textBlock(label, resource.text || ""));
-                    else selectedInputs.push(resource);
+                    if (resource.type === "text") {
+                        if (!verbatimText) textBlocks.push(textBlock(label, resource.text || ""));
+                    } else selectedInputs.push(resource);
                 }
-                return resource.type === "text" ? `【${label}】` : label;
+                return resource.type === "text" ? verbatimText ? resource.text || "" : `【${label}】` : label;
             });
             nextPrompt += labels.join("、");
         }

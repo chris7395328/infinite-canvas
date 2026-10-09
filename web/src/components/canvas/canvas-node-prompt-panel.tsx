@@ -99,6 +99,8 @@ export function CanvasNodePromptPanel({ node, nodes, isRunning, onPromptChange, 
                 placeholder={t(`canvas.promptPanel.${mode === "image" && hasImageContent ? "editImage" : mode === "text" && hasTextContent ? "editText" : mode}`)}
             />
 
+            {mode === "audio" && node.metadata?.audioText ? <details className="mt-2 text-xs" style={{ color: theme.node.muted }}><summary className="cursor-pointer">查看生成歌词／歌曲结构</summary><textarea readOnly value={node.metadata.audioText} className="thin-scrollbar mt-2 h-32 w-full select-text resize-y rounded-lg bg-transparent p-2 text-sm leading-5" style={{ color: theme.node.text, border: `1px solid ${theme.node.stroke}` }} onMouseDown={(event) => event.stopPropagation()} /></details> : null}
+
             <div className="mt-2 flex min-w-0 items-end justify-between gap-2">
                 <div className="flex min-w-0 items-center gap-2">
                     <Tooltip title={t("canvas.promptPanel.expandEditor")}>
@@ -208,6 +210,7 @@ function buildNodeConfig(globalConfig: AiConfig, node: CanvasNodeData, mode: Can
             formalResolution: node.metadata?.seedanceFormalResolution,
         },
         audioVoice: node.metadata?.audioVoice || globalConfig.audioVoice || defaultConfig.audioVoice,
+        geminiAudio: node.metadata?.geminiAudio ?? globalConfig.geminiAudio,
         audioFormat: node.metadata?.audioFormat || globalConfig.audioFormat || defaultConfig.audioFormat,
         audioSpeed: node.metadata?.audioSpeed || globalConfig.audioSpeed || defaultConfig.audioSpeed,
         audioInstructions: node.metadata?.audioInstructions || globalConfig.audioInstructions || defaultConfig.audioInstructions,
@@ -229,9 +232,6 @@ function videoConfigPatch(key: VideoSettingsKey, value: string): Partial<CanvasN
     return { [key]: value };
 }
 
-function audioConfigPatch(key: CanvasAudioSettingKey, value: string) {
-    if (key === "audioVoice") return { audioVoice: value };
-    if (key === "audioFormat") return { audioFormat: value };
-    if (key === "audioSpeed") return { audioSpeed: value };
-    return { audioInstructions: value };
+function audioConfigPatch(key: CanvasAudioSettingKey, value: string | import("@/lib/gemini-audio").GeminiAudioSettings): Partial<CanvasNodeMetadata> {
+    return key === "geminiAudio" ? { geminiAudio: value as import("@/lib/gemini-audio").GeminiAudioSettings } : { [key]: value as string };
 }
