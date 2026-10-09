@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState, type RefObject } from "react";
 import { createPortal } from "react-dom";
 import { Settings2 } from "lucide-react";
-import { Button } from "antd";
+import { Button, ConfigProvider } from "antd";
 
 import { AudioSettingsPanel, type AudioSettingKey, type AudioSettingValue } from "@/components/audio-settings-panel";
 import { geminiAudioSummary } from "@/lib/gemini-audio";
@@ -94,8 +94,6 @@ function AudioSettingsPortal({
         background: theme.toolbar.panel,
         borderRadius: 18,
         boxShadow: "0 18px 54px rgba(28, 25, 23, 0.16)",
-        padding: 18,
-        overflowY: "auto",
         color: theme.node.text,
     } as const;
 
@@ -108,7 +106,12 @@ function AudioSettingsPortal({
             onMouseDown={(event) => event.stopPropagation()}
             onClick={(event) => event.stopPropagation()}
         >
-            <AudioSettingsPanel config={config} onConfigChange={(key, value) => onConfigChange(key, value)} theme={theme} className="space-y-4" />
+            {/* Keep dropdowns inside the outside-click boundary, but outside the scroll clip. */}
+            <ConfigProvider getPopupContainer={() => panelRef.current!}>
+                <div className="thin-scrollbar" style={{ padding: 18, overflowY: "auto", maxHeight: "inherit" }}>
+                    <AudioSettingsPanel config={config} onConfigChange={(key, value) => onConfigChange(key, value)} theme={theme} className="space-y-4" />
+                </div>
+            </ConfigProvider>
         </div>,
         document.body,
     );
