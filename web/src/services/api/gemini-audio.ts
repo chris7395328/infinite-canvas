@@ -1,6 +1,6 @@
 import axios from "axios";
 import { geminiAudioCapabilities, normalizeGeminiAudio, type GeminiAudioSettings } from "@/lib/gemini-audio";
-import { readFileAsDataUrl } from "@/lib/image-utils";
+import { dataUrlToFile, readFileAsDataUrl } from "@/lib/image-utils";
 import { imageToDataUrl } from "@/services/image-storage";
 import { resolveModelRequestConfig, withLocalProxy, type AiConfig } from "@/stores/use-config-store";
 import type { ReferenceImage } from "@/types/image";
@@ -84,7 +84,10 @@ export async function requestGeminiAudio(config: AiConfig, prompt: string, optio
     if (!audio?.data && !audio?.uri) throw new Error("Google 未返回音频，可能被安全策略拦截。请查看提示词或更换后重试。");
     const fallbackMime = caps?.kind === "tts" ? `audio/${normalizeGeminiAudio(resolved.model, config.geminiAudio).encoding}` : normalizeGeminiAudio(resolved.model, config.geminiAudio).musicFormat === "wav" ? "audio/wav" : "audio/mpeg";
     let blob: Blob;
-    if (audio.data) blob = await (await fetch(`data:${audio.mime_type || fallbackMime};base64,${audio.data}`, { signal: options?.signal })).blob();
+    if (audio.data) {
+        options?.signal?.throwIfAborted();
+        blob = dataUrlToFile({ dataUrl: `data:${audio.mime_type || fallbackMime};base64,${audio.data}` });
+    }
     else {
         const authenticated = new URL(audio.uri!).origin === new URL(resolved.baseUrl).origin;
         const response = await fetch(withLocalProxy(audio.uri!), { ...(authenticated ? { headers: headers(resolved) } : {}), signal: options?.signal });

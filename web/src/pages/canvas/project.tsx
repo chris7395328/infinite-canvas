@@ -2748,7 +2748,9 @@ function InfiniteCanvasPage() {
                     if (!isEmptyAudioNode) setConnections((prev) => [...prev, ...copySourceConnections(audioId)]);
                     const controller = startGenerationRequest(audioId, nodeId, nodeId, runController);
                     try {
-                        const audio = await storeGeneratedAudio(await requestAudioGeneration(generationConfig, effectivePrompt, { signal: controller.signal, images: generationContext.referenceImages }), generationConfig.audioFormat);
+                        const audio = await storeGeneratedAudio(await requestAudioGeneration(generationConfig, effectivePrompt, { signal: controller.signal, images: generationContext.referenceImages }), generationConfig.audioFormat, (storageKey, durationMs) => {
+                            if (durationMs !== undefined) setNodes((prev) => prev.map((node) => node.id === audioId && node.metadata?.storageKey === storageKey ? { ...node, metadata: { ...node.metadata, durationMs } } : node));
+                        });
                         setNodes((prev) => prev.map((node) => (node.id === audioId ? { ...node, metadata: { ...node.metadata, ...audioMetadata(audio), prompt: effectivePrompt, ...buildAudioGenerationMetadata(generationConfig) } } : node)));
                     } finally {
                         finishGenerationRequest(audioId, controller);
@@ -3015,7 +3017,9 @@ function InfiniteCanvasPage() {
                 }
                 if (node.type === CanvasNodeType.Audio) {
                     if (geminiAudioCapabilities(generationConfig.model)?.kind === "tts") generationConfig.geminiAudio = resolveGeminiReferenceVoice(generationConfig.geminiAudio || {}, audioReferencesFromInputs(buildNodeGenerationInputs(sourceNode.id, nodesRef.current, connectionsRef.current)), resolveModelChannel(generationConfig, generationConfig.model).id);
-                    const audio = await storeGeneratedAudio(await requestAudioGeneration(generationConfig, prompt, { signal: controller.signal, images: retryImages }), generationConfig.audioFormat);
+                    const audio = await storeGeneratedAudio(await requestAudioGeneration(generationConfig, prompt, { signal: controller.signal, images: retryImages }), generationConfig.audioFormat, (storageKey, durationMs) => {
+                        if (durationMs !== undefined) setNodes((prev) => prev.map((item) => item.id === node.id && item.metadata?.storageKey === storageKey ? { ...item, metadata: { ...item.metadata, durationMs } } : item));
+                    });
                     setNodes((prev) => prev.map((item) => (item.id === node.id ? { ...item, metadata: { ...item.metadata, ...audioMetadata(audio), prompt, ...buildAudioGenerationMetadata(generationConfig) } } : item)));
                     return;
                 }

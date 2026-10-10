@@ -51,7 +51,7 @@ export function readImageMeta(dataUrl: string) {
     });
 }
 
-export function dataUrlToFile(image: ReferenceImage) {
+export function dataUrlToFile(image: Pick<ReferenceImage, "dataUrl"> & Partial<Pick<ReferenceImage, "name" | "type">>) {
     const [header, content] = image.dataUrl.split(",", 2);
     const mimeType = header.match(/data:(.*?);base64/)?.[1] || image.type || "image/png";
     const binary = atob(content || "");

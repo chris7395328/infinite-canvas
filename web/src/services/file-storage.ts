@@ -8,12 +8,16 @@ export type UploadedFile = { url: string; storageKey: string; bytes: number; mim
 const store = localforage.createInstance({ name: "infinite-canvas", storeName: "media_files" });
 const objectUrls = new Map<string, string>();
 
-export async function uploadMediaFile(input: string | Blob, prefix = "file"): Promise<UploadedFile> {
+export async function uploadMediaFile(input: string | Blob, prefix = "file", options?: { deferAudioMetadata?: boolean; onAudioMetadata?: (storageKey: string, durationMs?: number) => void }): Promise<UploadedFile> {
     const blob = typeof input === "string" ? await (await fetch(withLocalProxy(input))).blob() : input;
     const storageKey = `${prefix}:${nanoid()}`;
     await store.setItem(storageKey, blob);
     const url = URL.createObjectURL(blob);
     objectUrls.set(storageKey, url);
+    if (blob.type.startsWith("audio/") && options?.deferAudioMetadata) {
+        void readAudioMeta(url).then((meta) => options.onAudioMetadata?.(storageKey, meta.durationMs));
+        return { url, storageKey, bytes: blob.size, mimeType: blob.type };
+    }
     const meta = blob.type.startsWith("video/") ? await readVideoMeta(url) : blob.type.startsWith("audio/") ? await readAudioMeta(url) : {};
     return { url, storageKey, bytes: blob.size, mimeType: blob.type || "application/octet-stream", ...meta };
 }
@@ -90,9 +94,17 @@ function readVideoMeta(url: string) {
 function readAudioMeta(url: string) {
     return new Promise<{ durationMs?: number }>((resolve) => {
         const audio = document.createElement("audio");
-        const done = () => resolve({ durationMs: Number.isFinite(audio.duration) ? Math.round(audio.duration * 1000) : undefined });
+        const done = () => {
+            const durationMs = Number.isFinite(audio.duration) ? Math.round(audio.duration * 1000) : undefined;
+            audio.onloadedmetadata = audio.onerror = null;
+            audio.removeAttribute("src");
+            audio.load();
+            resolve({ durationMs });
+        };
+        audio.preload = "metadata";
         audio.onloadedmetadata = done;
         audio.onerror = done;
         audio.src = url;
+        audio.load();
     });
 }

@@ -92,10 +92,10 @@ async function audioPluginBlob(result: unknown, format: string): Promise<Blob> {
     return blob.type.startsWith("audio/") ? blob : new Blob([blob], { type: audioMimeType(format) });
 }
 
-export async function storeGeneratedAudio(result: Blob | GeminiAudioResult, format = "mp3"): Promise<UploadedFile & { audioText?: string; audioInteractionId?: string }> {
+export async function storeGeneratedAudio(result: Blob | GeminiAudioResult, format = "mp3", onAudioMetadata?: (storageKey: string, durationMs?: number) => void): Promise<UploadedFile & { audioText?: string; audioInteractionId?: string }> {
     const blob = result instanceof Blob ? result : result.blob;
     const audio = blob.type.startsWith("audio/") ? blob : new Blob([blob], { type: audioMimeType(format) });
-    return { ...await uploadMediaFile(audio, "audio"), ...(result instanceof Blob ? {} : { audioText: result.audioText, audioInteractionId: result.audioInteractionId }) };
+    return { ...await uploadMediaFile(audio, "audio", { deferAudioMetadata: true, onAudioMetadata }), ...(result instanceof Blob ? {} : { audioText: result.audioText, audioInteractionId: result.audioInteractionId }) };
 }
 
 function assertAudioConfig(config: AiConfig, model: string) {
