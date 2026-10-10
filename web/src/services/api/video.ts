@@ -7,9 +7,8 @@ import { clampVideoSeconds, computeVideoSize, inferVideoRatio } from "@/lib/medi
 import { getMediaBlob, resolveMediaUrl, uploadMediaFile, type UploadedFile } from "@/services/file-storage";
 import { imageToDataUrl } from "@/services/image-storage";
 import { boolConfig, buildApiUrl, isVolcengineSeedance25, modelOptionName, resolveModelRequestConfig, resolveModelScript, withLocalProxy, type AiConfig } from "@/stores/use-config-store";
-import { getPluginTemplates, getVolcengineSeedanceScript, runModelPlugin } from "./model-plugin";
-import { createMoyuSeedanceTask, isMoyuSeedance, pollMoyuSeedanceTask } from "./moyu-video";
-import { createXingSeedanceTask, isXingSeedance933 } from "./xing-video";
+import { getVolcengineSeedanceScript, runModelPlugin } from "./model-plugin";
+import { pollMoyuSeedanceTask } from "./moyu-video";
 import type { ReferenceImage } from "@/types/image";
 import type { ReferenceAudio, ReferenceVideo } from "@/types/media";
 import { backgroundPost, type BackgroundContext, type BackgroundKind } from "./background-tasks";
@@ -74,35 +73,13 @@ function videoTaskFailed(message: string) {
 export async function createVideoGenerationTask(config: AiConfig, prompt: string, references: ReferenceImage[] = [], options?: VideoMediaOptions): Promise<VideoGenerationTask> {
     const selectedModel = (config.model || config.videoModel).trim();
     const requestConfig = resolveModelRequestConfig(config, selectedModel);
-    if (isXingSeedance933(requestConfig)) {
-        assertVideoConfig(requestConfig, requestConfig.model);
-        const result = await createXingSeedanceTask(requestConfig, prompt, references, options);
-        return result instanceof Blob ? completedVideoTask(selectedModel, result) : { id: result, provider: "openai", model: selectedModel };
-    }
-    // The bundled 2.5 script persists Ark's draft_task_id. Prefer it over a
-    // saved legacy script so draft nodes can always offer formal generation.
-    // Omni must use Interactions even when a legacy Veo template was saved on the model.
-    if (isOmniModel(selectedModel)) {
-        assertVideoConfig(requestConfig, requestConfig.model);
-        return createOmniVideoTask(requestConfig, selectedModel, prompt, references, options);
-    }
-    if (isMoyuSeedance(requestConfig)) {
-        assertVideoConfig(requestConfig, requestConfig.model);
-        const id = await createMoyuSeedanceTask(requestConfig, prompt, references, {
-            seconds: normalizeVideoSeconds(requestConfig.videoSeconds),
-            resolution: normalizeVideoResolution(requestConfig.vquality),
-            ratio: requestConfig.size === "auto" ? "adaptive" : videoAspectRatio(requestConfig.size),
-            mode: resolveVideoMode(requestConfig.videoMode, references.length),
-            generateAudio: boolConfig(requestConfig.videoGenerateAudio, true),
-        }, options);
-        return id instanceof Blob ? completedVideoTask(selectedModel, id) : { id, provider: "moyu", model: selectedModel };
-    }
-    const script = isVolcengineSeedance25(requestConfig) ? getVolcengineSeedanceScript() : resolveModelScript(config, selectedModel);
-    const bundled = getPluginTemplates().video;
-    if (script === bundled[0]?.script) return createOpenAIVideoTask(requestConfig, selectedModel, prompt, references, options);
-    if (script === bundled[1]?.script) return createGeminiVideoTask(requestConfig, selectedModel, prompt, references, options);
+    // The channel's exact selected model and user script are authoritative.
+    // Never pick a third-party adapter by host or model alias.
+    const script = resolveModelScript(config, selectedModel);
     if (script) return createPluginVideoTask(requestConfig, selectedModel, script, prompt, references, options);
     assertVideoConfig(requestConfig, requestConfig.model);
+    if (requestConfig.apiFormat === "volcengine" || isVolcengineSeedance25(config)) return createPluginVideoTask(requestConfig, selectedModel, getVolcengineSeedanceScript(), prompt, references, options);
+    if (requestConfig.apiFormat === "gemini" && new URL(requestConfig.baseUrl).hostname === "generativelanguage.googleapis.com" && isOmniModel(selectedModel)) return createOmniVideoTask(requestConfig, selectedModel, prompt, references, options);
     if (requestConfig.apiFormat === "gemini") return createGeminiVideoTask(requestConfig, selectedModel, prompt, references, options);
     return createOpenAIVideoTask(requestConfig, selectedModel, prompt, references, options);
 }
@@ -238,7 +215,7 @@ async function pollOpenAIVideoTask(config: AiConfig, task: VideoGenerationTask, 
         const video = unwrapVideoResponse((await axios.get<ApiVideoResponse>(aiApiUrl(config, `/videos/${task.id}`), { headers: aiHeaders(config), signal: options?.signal })).data);
         const url = videoResultUrl(video);
         if (url) return { status: "completed", result: await videoResultFromUrl(url, options) };
-        if (video.status === "completed" && !isXingSeedance933(config)) {
+        if (video.status === "completed") {
             const content = await axios.get<Blob>(aiApiUrl(config, `/videos/${task.id}/content`), { headers: aiHeaders(config), responseType: "blob", signal: options?.signal });
             await assertVideoBlob(content.data);
             return { status: "completed", result: { blob: content.data } };

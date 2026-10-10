@@ -7,7 +7,6 @@ import { ImageSettingsTheme } from "@/components/image-settings-panel";
 import { type CanvasTheme } from "@/lib/canvas-theme";
 import { clampVideoSeconds, computeVideoSize, inferVideoRatio, parseVideoResolution, readVideoDimensions, VIDEO_SECONDS_MAX, VIDEO_SECONDS_MIN, videoRatioOptions } from "@/lib/media-size";
 import { isVolcengineSeedance25, modelOptionName, resolveModelRequestConfig, type AiConfig } from "@/stores/use-config-store";
-import { isXingSeedance933 } from "@/services/api/xing-video";
 
 const resolutionOptions = [
     { value: "480", label: "480p" },
@@ -43,22 +42,22 @@ export function VideoSettingsPanel({ config, onConfigChange, theme, showTitle = 
     const { t } = useTranslation();
     const isSeedance25 = isVolcengineSeedance25(config);
     const modelName = modelOptionName(config.model).replace(/^models\//, "").toLowerCase();
-    const isSeedance20 = /doubao-seedance-2-0/.test(modelName);
+    const channel = resolveModelRequestConfig(config, config.model);
+    const isOfficialArk = channel.apiFormat === "volcengine" || /ark\.cn-beijing\.volces\.com\/api\/v3/i.test(channel.baseUrl);
+    const isSeedance20 = isOfficialArk && /doubao-seedance-2-0/.test(modelName);
     const isSeedance20Fast = isSeedance20 && /fast|mini/.test(modelName);
-    const isOmni = /^gemini-omni-/.test(modelName);
-    const is933 = isXingSeedance933(resolveModelRequestConfig(config, config.model));
+    const isOmni = channel.apiFormat === "gemini" && /^https:\/\/generativelanguage\.googleapis\.com(?:\/|$)/i.test(channel.baseUrl) && /^gemini-omni-/.test(modelName);
     const isDraft = isSeedance25 && config.seedance.draft;
-    const minSeconds = is933 ? 4 : isOmni ? 3 : VIDEO_SECONDS_MIN;
-    const maxSeconds = isOmni ? 10 : isSeedance20 || is933 ? 15 : VIDEO_SECONDS_MAX;
+    const minSeconds = isOmni ? 3 : VIDEO_SECONDS_MIN;
+    const maxSeconds = isOmni ? 10 : isSeedance20 ? 15 : VIDEO_SECONDS_MAX;
     const seconds = Math.round(Math.max(minSeconds, Math.min(maxSeconds, Number(config.videoSeconds) || 6)));
     const videoMode = normalizeVideoModeValue(config.videoMode);
     const omniResolutionOptions = [{ value: "360", label: "360p" }, { value: "720", label: "720p" }, { value: "1080", label: "1080p" }, { value: "2160", label: "4K" }];
-    const allowedResolutions = is933 ? resolutionOptions.filter((item) => item.value === "720") : isOmni ? omniResolutionOptions : isSeedance20Fast ? resolutionOptions.filter((item) => item.value !== "1080") : resolutionOptions;
+    const allowedResolutions = isOmni ? omniResolutionOptions : isSeedance20Fast ? resolutionOptions.filter((item) => item.value !== "1080") : resolutionOptions;
     const requestedResolution = parseVideoResolution(config.vquality);
     const resolution = isDraft ? "480" : allowedResolutions.some((item) => item.value === requestedResolution) ? requestedResolution : "720";
-    const rawRatio = inferVideoRatio(config.size || "auto");
-    const selectedRatio = is933 && !["16:9", "9:16"].includes(rawRatio) ? "16:9" : rawRatio;
-    const fixedDimensions = isOmni || isSeedance20 || isSeedance25 || is933;
+    const selectedRatio = inferVideoRatio(config.size || "auto");
+    const fixedDimensions = isOmni || isSeedance20 || isSeedance25;
     const dimensions = readVideoDimensions(fixedDimensions ? computeVideoSize(resolution, selectedRatio === "auto" ? "16:9" : selectedRatio) : config.size || "auto", resolution, selectedRatio);
     const applySize = (nextResolution: string, ratio: string) => {
         onConfigChange("vquality", nextResolution);
@@ -72,7 +71,6 @@ export function VideoSettingsPanel({ config, onConfigChange, theme, showTitle = 
         const smartEdit = isSeedance25 && config.seedance.taskType === "edit" && config.videoSeconds === "-1";
         if (!smartEdit && String(seconds) !== String(config.videoSeconds)) onConfigChange("videoSeconds", String(seconds));
         if (resolution !== requestedResolution) onConfigChange("vquality", resolution);
-        if (is933 && config.videoMode !== "reference") onConfigChange("videoMode", "reference");
         // MOV is 2.5-only. Clear a persisted 2.5 choice when switching to Seedance 2.0.
         if (isSeedance20 && config.seedance.outputFormat !== "mp4") onConfigChange("seedanceOutputFormat", "mp4");
         const adaptive = isSeedance25 && ["extend", "edit"].includes(config.seedance.taskType);
@@ -134,7 +132,7 @@ export function VideoSettingsPanel({ config, onConfigChange, theme, showTitle = 
                 </SettingGroup>
                 <SettingGroup title={t("settingsPanels.video.ratio")} color={theme.node.muted}>
                     <div className={isOmni ? "grid grid-cols-2 gap-2.5" : "grid grid-cols-4 gap-2.5"}>
-                        {(isOmni || is933 ? videoRatioOptions.filter((item) => item.value === "16:9" || item.value === "9:16") : videoRatioOptions).map((item) => (
+                        {(isOmni ? videoRatioOptions.filter((item) => item.value === "16:9" || item.value === "9:16") : videoRatioOptions).map((item) => (
                             <button
                                 key={item.value}
                                 type="button"
@@ -158,7 +156,7 @@ export function VideoSettingsPanel({ config, onConfigChange, theme, showTitle = 
                 </SettingGroup>
                 <SettingGroup title={t("settingsPanels.video.mode")} color={theme.node.muted}>
                     <div className="grid grid-cols-2 gap-2.5">
-                        {videoModeOptions.filter((item) => !is933 || item.value === "reference").map((item) => (
+                        {videoModeOptions.map((item) => (
                             <OptionPill key={item.value} selected={videoMode === item.value} theme={theme} onClick={() => onConfigChange("videoMode", item.value)}>
                                 {t(`settingsPanels.video.modes.${item.labelKey}`)}
                             </OptionPill>
@@ -166,7 +164,6 @@ export function VideoSettingsPanel({ config, onConfigChange, theme, showTitle = 
                     </div>
                 </SettingGroup>
                 {isOmni ? <div className="text-xs" style={{ color: theme.node.muted }}>首尾帧：前两张图依次作为首帧、尾帧；全参考：所有图片按顺序作为素材参考。Omni 支持 3–10s · 16:9 / 9:16，1080p/4K 为放大输出。</div> : null}
-                {is933 ? <div className="text-xs" style={{ color: theme.node.muted }}>933：720p、4–15 秒；最多 9 图／3 视频／3 音频，均为全参考，不保证首尾帧控制。本地素材需在 Seedance 设置中配置 COS 公网 HTTPS 直链，点击生成时上传。</div> : null}
             </div>
         </ImageSettingsTheme>
     );

@@ -19,7 +19,7 @@ require('node:http').createServer(async (req,res) => {
   if (req.url === '/videos/generations') {
     videoCalls++;
     const input = JSON.parse(body);
-    if (input.model !== 'seedance-933' || input.duration !== 10 || input.resolution !== '720p' || req.headers['x-canvas-task-key'] || !req.headers['content-type'].includes('application/json')) { res.writeHead(400); res.end('bad request'); return; }
+    if (input.model !== 'Online-Model-Arbitrary-Alias' || input.duration !== 10 || input.resolution !== '720p' || req.headers['x-canvas-task-key'] || req.headers['x-canvas-video-protocol'] || !req.headers['content-type'].includes('application/json')) { res.writeHead(400); res.end('bad request'); return; }
     res.setHeader('content-type','application/json'); res.end(JSON.stringify({data:{id:'original-task',status:'queued'}})); return;
   }
   if (req.url === '/videos/original-task') {
@@ -117,7 +117,7 @@ async function verifyProxy() {
     assert.equal((await fetch(task, { headers: auth })).status, 404);
     const videoTask = `${base}/canvas-proxy/_tasks/${randomUUID()}`;
     const videoAuth = { "x-canvas-task-key": randomUUID() };
-    assert.equal((await fetch(videoTask, { method: "POST", headers: { ...videoAuth, "x-canvas-target-url": "http://proxy:24123/videos/generations", "x-canvas-video-protocol": "xing933", "content-type": "application/json", Authorization: "Bearer fixture-not-a-key" }, body: JSON.stringify({ model: "seedance-933", prompt: "offline fixture", duration: 10, resolution: "720p", ratio: "16:9" }) })).status, 202);
+    assert.equal((await fetch(videoTask, { method: "POST", headers: { ...videoAuth, "x-canvas-target-url": "http://proxy:24123/videos/generations", "x-canvas-video-protocol": "json-video", "content-type": "application/json", Authorization: "Bearer fixture-not-a-key" }, body: JSON.stringify({ model: "Online-Model-Arbitrary-Alias", prompt: "offline fixture", duration: 10, resolution: "720p", ratio: "16:9" }) })).status, 202);
     assert.equal((await (await fetch(videoTask, { headers: videoAuth })).json()).expiresAt, null);
     let videoState;
     for (let i = 0; i < 6; i++) {

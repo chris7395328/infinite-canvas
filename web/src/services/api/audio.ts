@@ -51,7 +51,7 @@ export async function requestAudioGeneration(config: AiConfig, prompt: string, o
         }
     }
     assertAudioConfig(requestConfig, model);
-    if (requestConfig.apiFormat === "gemini" || geminiAudioCapabilities(model)) {
+    if (requestConfig.apiFormat === "gemini") {
         try {
             return await requestGeminiAudio(config, prompt, options);
         } catch (error) {

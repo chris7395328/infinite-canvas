@@ -755,7 +755,6 @@ export async function requestGeneration(config: AiConfig, prompt: string, option
             throw new Error(readAxiosError(error, apiText("requestFailed")));
         }
     }
-    if (geminiImageCapabilities(requestConfig.model)) throw new Error(i18n.t("settingsPanels.geminiImage.formatRequired"));
     const quality = normalizeRequestQuality(requestConfig.model, config.quality);
     const requestSize = resolveRequestSize(quality, config.size);
     const background = normalizeBackground(config.background);
@@ -818,7 +817,6 @@ export async function requestEdit(config: AiConfig, prompt: string, references: 
         }
     }
 
-    if (geminiImageCapabilities(requestConfig.model)) throw new Error(i18n.t("settingsPanels.geminiImage.formatRequired"));
     const quality = normalizeRequestQuality(requestConfig.model, config.quality);
     const requestSize = resolveRequestSize(quality, config.size);
     const background = normalizeBackground(config.background);

@@ -6,6 +6,8 @@ const resultUrl = (value) => value?.content?.video_url || value?.video_url || va
 
 /** Poll only an already admitted task. Never resubmit a generation POST. */
 export async function resolveVideoTask(protocol, initial, target, headers, task, read) {
+    // Keep the existing script profile as an alias, without inspecting model IDs or hosts.
+    if (protocol === "xing933") protocol = "json-video";
     let value = unwrap(initial);
     const id = value?.id || value?.task_id || value?.name;
     task.upstreamId = id;
@@ -14,7 +16,7 @@ export async function resolveVideoTask(protocol, initial, target, headers, task,
     const authenticated = (url) => new URL(url).origin === base.origin ? headers : {};
     let pollUrl;
     if (protocol === "openai" || protocol === "moyu") pollUrl = `${target.href.replace(/\/$/, "")}/${encodeURIComponent(id)}`;
-    if (protocol === "xing933") pollUrl = `${target.href.replace(/\/videos\/generations\/?$/, "/videos")}/${encodeURIComponent(id)}`;
+    if (protocol === "json-video") pollUrl = `${target.href.replace(/\/videos\/generations\/?$/, "/videos")}/${encodeURIComponent(id)}`;
     if (protocol === "gemini") pollUrl = new URL(`../${String(id).replace(/^\//, "")}`, new URL("./", target)).href;
     for (;;) {
         task.controller.signal.throwIfAborted();
@@ -43,7 +45,7 @@ export async function resolveVideoTask(protocol, initial, target, headers, task,
             }
         }
         const url = resultUrl(value) || resultUrl(value?.data) || value?.response?.generateVideoResponse?.generatedSamples?.[0]?.video?.uri;
-        if (url && (protocol !== "xing933" || ["completed", "succeeded", "success", "done", "finished"].includes(status))) return { url, headers: authenticated(url) };
+        if (url && (protocol !== "json-video" || ["completed", "succeeded", "success", "done", "finished"].includes(status))) return { url, headers: authenticated(url) };
         if (protocol === "openai" && ["completed", "succeeded", "success"].includes(status)) return { url: `${pollUrl}/content`, headers };
         if ((protocol === "gemini" && value?.done) || (protocol === "moyu" && status === "success")) throw new Error("API 返回成功但没有视频地址；未重新生成，请核对上游任务。");
         if (!pollUrl) throw new Error("无法确定原任务查询地址，未重新生成。");

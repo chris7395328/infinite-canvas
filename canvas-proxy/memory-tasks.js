@@ -65,7 +65,7 @@ export function createMemoryTasks() {
                 if (!["http:", "https:"].includes(target.protocol) || target.username || target.password) throw new Error();
             } catch { json(res, 400, { error: "无效的上游地址" }); return; }
             const protocol = req.headers["x-canvas-video-protocol"];
-            if (protocol && !["openai", "gemini", "omni", "moyu", "xing933"].includes(protocol)) { req.resume(); json(res, 400, { error: "未知视频任务协议，未提交生成。" }); return; }
+            if (protocol && !["openai", "gemini", "omni", "moyu", "json-video", "xing933"].includes(protocol)) { req.resume(); json(res, 400, { error: "未知视频任务协议，未提交生成。" }); return; }
             if (bytes + OVERHEAD > BUDGET) { req.resume(); json(res, 507, { error: "后台任务内存预算已满（256 MiB），未提交生成。" }); return; }
             task = { id, key: digest(token), state: "uploading", createdAt: Date.now(), bytes: 0, chunks: [], controller: new AbortController() };
             tasks.set(id, task);
