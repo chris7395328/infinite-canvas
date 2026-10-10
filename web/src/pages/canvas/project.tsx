@@ -498,6 +498,13 @@ function InfiniteCanvasPage() {
                     return { ...node, metadata };
                 });
             }
+            restored = restored.map((node) => {
+                const pending = tasks.filter((task) => task.nodeId === node.id && !task.saved);
+                if (!pending.some((task) => task.itemId)) return node;
+                const admitted = new Set(pending.map((task) => task.itemId));
+                const interrupted = "页面关闭前尚未提交后台任务，未自动重新生成。";
+                return { ...node, metadata: { ...node.metadata, images: node.metadata?.images?.map((image) => image.status === "loading" && !admitted.has(image.id) ? { ...image, status: "error", errorDetails: interrupted } : image), texts: node.metadata?.texts?.map((text) => text.status === "loading" && !admitted.has(text.id) ? { ...text, status: "error", errorDetails: interrupted } : text) } };
+            });
             const restoredNodes = await hydrateCanvasImages(resetInterruptedGeneration(restored, new Set(tasks.filter((task) => !task.saved).map((task) => task.nodeId))));
             const restoredSessions = await hydrateAssistantImages(project.chatSessions || []);
             if (cancelled) return;

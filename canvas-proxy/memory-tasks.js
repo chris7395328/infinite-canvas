@@ -24,6 +24,7 @@ export function createMemoryTasks() {
         tasks.delete(task.id);
     };
     const reserve = (task, size) => {
+        if (tasks.get(task.id) !== task) throw new Error("后台任务已取消或过期，未继续提交生成。");
         if (bytes + size > BUDGET) throw new Error("后台任务内存预算已满（256 MiB）。未自动重试；如已提交，上游可能计费。");
         task.bytes += size;
         bytes += size;
@@ -66,7 +67,8 @@ export function createMemoryTasks() {
             reserve(task, OVERHEAD);
             try {
                 for await (const chunk of req) { reserve(task, chunk.length); task.chunks.push(chunk); }
-            } catch (error) { fail(task, error); json(res, 507, { error: task.error }); return; }
+            } catch (error) { fail(task, error); json(res, 507, { error: task.error || "后台任务已取消或过期，未继续提交生成。" }); return; }
+            if (tasks.get(id) !== task) { json(res, 409, { error: "后台任务已取消或过期，未提交生成。" }); return; }
             const headers = {};
             for (const [key, value] of Object.entries(req.headers)) {
                 if (key.startsWith("x-canvas-") || ["host", "connection", "content-length", "accept-encoding", "origin", "referer", "cookie"].includes(key) || key.startsWith("sec-") || value === undefined) continue;
