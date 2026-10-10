@@ -256,6 +256,8 @@ export async function cleanupUnusedImages(usedData: unknown) {
 /** Remove image files and previews that are not referenced by the supplied live data. */
 export async function cleanupImageFiles(usedKeys: Iterable<string>) {
     const used = new Set(usedKeys);
+    const { backgroundTasks } = await import("@/services/api/background-tasks");
+    collectImageStorageKeys(await backgroundTasks(), used);
     const unused: string[] = [];
     let bytes = 0;
     await store.iterate((value, key) => {

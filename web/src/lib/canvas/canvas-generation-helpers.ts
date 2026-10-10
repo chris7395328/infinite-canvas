@@ -146,10 +146,10 @@ export function hasResumableVideoTask(node: CanvasNodeData) {
     return node.type === CanvasNodeType.Video && Boolean(node.metadata?.videoTaskId) && !node.metadata?.content;
 }
 
-export function resetInterruptedGeneration(nodes: CanvasNodeData[]) {
+export function resetInterruptedGeneration(nodes: CanvasNodeData[], backgroundNodeIds = new Set<string>()) {
     return nodes.map((node) =>
         node.metadata?.status === "loading"
-            ? hasResumableVideoTask(node)
+            ? hasResumableVideoTask(node) || backgroundNodeIds.has(node.id)
                 ? node
                 : {
                       ...node,

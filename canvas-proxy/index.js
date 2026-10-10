@@ -3,6 +3,7 @@ import { createServer } from "node:http";
 import { createHash, createHmac, randomUUID } from "node:crypto";
 import { createRequire } from "node:module";
 import { Readable } from "node:stream";
+import { createMemoryTasks } from "./memory-tasks.js";
 
 const pkg = createRequire(import.meta.url)("./package.json");
 
@@ -345,6 +346,7 @@ async function forward(req, res, target) {
 }
 
 export function createProxyServer() {
+    const memoryTasks = createMemoryTasks();
     return createServer((req, res) => {
         if (req.method === "OPTIONS") {
             res.writeHead(204, CORS_HEADERS);
@@ -355,13 +357,21 @@ export function createProxyServer() {
             void handleSeedanceCosUpload(req, res);
             return;
         }
+        if ((req.url || "").startsWith("/_tasks/")) {
+            for (const [key, value] of Object.entries(CORS_HEADERS)) res.setHeader(key, value);
+            void memoryTasks(req, res).catch(() => {
+                if (!res.headersSent) sendJson(res, 500, { error: "后台内存任务处理失败；未自动重试。" });
+                else res.destroy();
+            });
+            return;
+        }
         if (req.method === "POST" && req.url === "/seedance/video") {
             void handleSeedanceVideo(req, res);
             return;
         }
         const target = readTarget(req.url || "/");
         if (!target) {
-            sendJson(res, 200, { app: "infinite-canvas", proxy: pkg.name, version: pkg.version, usage: "/<full-target-url>" });
+            sendJson(res, 200, { app: "infinite-canvas", proxy: pkg.name, version: pkg.version, memoryTasks: 1, usage: "/<full-target-url>" });
             return;
         }
         const startedAt = Date.now();

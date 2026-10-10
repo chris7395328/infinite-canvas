@@ -2,8 +2,9 @@ import axios, { type AxiosRequestConfig } from "axios";
 
 import i18n from "@/i18n";
 import { buildApiUrl, normalizeLocalProxyUrl, withLocalProxy, type AiConfig, type ModelCapability } from "@/stores/use-config-store";
+import { backgroundFetch, backgroundPost, type BackgroundContext } from "./background-tasks";
 
-type RequestOptions = { signal?: AbortSignal };
+type RequestOptions = { signal?: AbortSignal; nextBackground?: () => BackgroundContext | undefined };
 
 export type PluginHttpOptions = {
     headers?: Record<string, string>;
@@ -31,6 +32,7 @@ export type RunPluginArgs = {
     params?: Record<string, unknown>;
     signal?: AbortSignal;
     onDelta?: (text: string) => void;
+    background?: BackgroundContext;
 };
 
 function pluginHeaders(extra?: Record<string, string>, hasJsonBody = false): Record<string, string> {
@@ -47,6 +49,11 @@ function pluginUrl(config: AiConfig, path: string) {
 function createPluginHttp(config: AiConfig, options?: RequestOptions): PluginHttp {
     const run = async (method: "get" | "post", path: string, body: unknown, opts?: PluginHttpOptions) => {
         const isForm = typeof FormData !== "undefined" && body instanceof FormData;
+        if (method === "post" && options?.nextBackground) {
+            const context = options.nextBackground();
+            const response = await backgroundPost(pluginUrl(config, path), body, { headers: pluginHeaders({ Authorization: `Bearer ${config.apiKey}`, ...opts?.headers }, !isForm && body !== undefined), params: opts?.params, responseType: opts?.responseType || "json", signal: options.signal }, context, `plugin-${context!.plugin!.capability}`);
+            return response.data;
+        }
         const response = await axios.request({
             method,
             url: pluginUrl(config, path),
@@ -68,6 +75,10 @@ function createPluginHttp(config: AiConfig, options?: RequestOptions): PluginHtt
 /** Raw request with no automatic auth header — the script controls method, url, headers, body entirely. */
 function createPluginRequest(config: AiConfig, options?: RequestOptions) {
     return async (requestConfig: AxiosRequestConfig & { url: string }) => {
+        if ((requestConfig.method || "get").toLowerCase() === "post" && options?.nextBackground) {
+            const context = options.nextBackground();
+            return (await backgroundPost(pluginUrl(config, requestConfig.url), requestConfig.data, { ...requestConfig, signal: options.signal }, context, `plugin-${context!.plugin!.capability}`)).data;
+        }
         const response = await axios.request({ ...requestConfig, url: pluginUrl(config, requestConfig.url), signal: options?.signal });
         return response.data;
     };
@@ -112,8 +123,16 @@ function createPoll(signal?: AbortSignal) {
  */
 export async function runModelPlugin<T = unknown>(args: RunPluginArgs): Promise<T> {
     const { config } = args;
-    const http = createPluginHttp(config, { signal: args.signal });
-    const request = createPluginRequest(config, { signal: args.signal });
+    let index = 0;
+    const nextBackground = args.background ? () => ({ ...args.background!, plugin: { capability: args.capability as "audio" | "image" | "text" | "video", script: args.script, prompt: args.prompt, images: args.images, videos: args.videos, audios: args.audios, messages: args.messages, params: args.params, index: index++ } }) : undefined;
+    const http = createPluginHttp(config, { signal: args.signal, nextBackground });
+    const request = createPluginRequest(config, { signal: args.signal, nextBackground });
+    const pluginFetch: typeof fetch = async (input, init) => {
+        const req = new Request(typeof input === "string" ? new URL(input, window.location.href) : input, init);
+        if (req.method !== "POST" || !nextBackground) return fetch(input, init);
+        const context = nextBackground();
+        return backgroundFetch(withLocalProxy(req.url), { method: "POST", headers: req.headers, body: await req.arrayBuffer(), signal: args.signal }, context, `plugin-${context.plugin.capability}`);
+    };
     const poll = createPoll(args.signal);
     const runner = new Function(
         "prompt",
@@ -134,6 +153,7 @@ export async function runModelPlugin<T = unknown>(args: RunPluginArgs): Promise<
         "sleep",
         "signal",
         "onDelta",
+        "fetch",
         `"use strict"; return (async () => {\n${args.script}\n})();`,
     ) as (...fnArgs: unknown[]) => Promise<T>;
     try {
@@ -156,6 +176,7 @@ export async function runModelPlugin<T = unknown>(args: RunPluginArgs): Promise<
             (ms: number) => sleep(ms, args.signal),
             args.signal,
             args.onDelta,
+            pluginFetch,
         );
     } catch (error) {
         if (error instanceof DOMException && error.name === "AbortError") throw error;

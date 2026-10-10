@@ -11,11 +11,12 @@ import { getVolcengineSeedanceScript, runModelPlugin } from "./model-plugin";
 import { createMoyuSeedanceTask, isMoyuSeedance, pollMoyuSeedanceTask } from "./moyu-video";
 import type { ReferenceImage } from "@/types/image";
 import type { ReferenceAudio, ReferenceVideo } from "@/types/media";
+import type { BackgroundContext } from "./background-tasks";
 
 type VideoResponse = { id: string; status?: string; error?: { message?: string }; url?: string; result_url?: string; video_url?: string; content?: { video_url?: string; url?: string } | null };
 type ApiVideoResponse = VideoResponse | { code?: number | string; data?: VideoResponse | null; msg?: string; message?: string; error?: { message?: string } };
 type ApiEnvelope<T> = T | { code?: number | string; data?: T | null; msg?: string; message?: string; error?: { message?: string } };
-type RequestOptions = { signal?: AbortSignal };
+type RequestOptions = { signal?: AbortSignal; background?: BackgroundContext };
 type VideoMediaOptions = RequestOptions & { videos?: ReferenceVideo[]; audios?: ReferenceAudio[] };
 const apiText = (key: string, options?: Record<string, unknown>) => i18n.t(`apiErrors.${key}`, options);
 
@@ -141,6 +142,7 @@ async function createPluginVideoTask(config: AiConfig, model: string, script: st
                 mode: resolveVideoMode(config.videoMode, refs.length),
             },
             signal: options?.signal,
+            background: options?.background,
         }),
     );
     const id = nanoid();
@@ -148,7 +150,7 @@ async function createPluginVideoTask(config: AiConfig, model: string, script: st
     return { id, provider: "plugin", model };
 }
 
-function videoPluginResult(result: unknown): VideoGenerationResult {
+export function videoPluginResult(result: unknown): VideoGenerationResult {
     if (result instanceof Blob) return { blob: result };
     if (typeof result === "string") return { url: result, mimeType: videoMimeType(result) };
     if (result && typeof result === "object") {

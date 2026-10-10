@@ -10,6 +10,7 @@
   },
   "files": [
     "index.js",
+    "memory-tasks.js",
     "README.md"
   ],
   "scripts": {

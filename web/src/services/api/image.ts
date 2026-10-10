@@ -11,6 +11,7 @@ import { imageSizePresets } from "@/lib/media-size";
 import { isGptImage25Model, normalizeImageQualityForModel } from "@/lib/image-quality";
 import { geminiImageCapabilities, geminiImageGenerationConfig } from "@/lib/gemini-image";
 import type { ReferenceImage } from "@/types/image";
+import { backgroundFetch, backgroundPost, type BackgroundContext, type BackgroundKind } from "./background-tasks";
 
 const apiText = (key: string, options?: Record<string, unknown>) => i18n.t(`apiErrors.${key}`, options);
 
@@ -98,7 +99,7 @@ type GeminiPayload = {
     promptFeedback?: { blockReason?: string };
 };
 type GeminiStreamState = { buffer: string; text: string; toolCalls: ResponseToolCall[]; error?: string };
-type RequestOptions = { signal?: AbortSignal };
+type RequestOptions = { signal?: AbortSignal; background?: BackgroundContext };
 
 const QUALITY_BASE: Record<string, number> = {
     low: 1024,
@@ -224,7 +225,7 @@ function resolveImageSource(item: Record<string, unknown>) {
     return null;
 }
 
-function parseImagePayload(payload: ImageApiResponse) {
+export function parseImagePayload(payload: ImageApiResponse) {
     if (typeof payload.code === "number" && payload.code !== 0) {
         throw new Error(payload.msg || apiText("requestFailed"));
     }
@@ -474,12 +475,12 @@ function consumeResponseStreamText(state: ResponseStreamState, text: string, onD
 }
 
 async function requestStreamingResponse(config: AiConfig, body: Record<string, unknown>, onDelta?: (text: string) => void, options?: RequestOptions): Promise<ToolResponseResult> {
-    const response = await fetch(aiApiUrl(config, "/responses"), {
+    const response = await backgroundFetch(aiApiUrl(config, "/responses"), {
         method: "POST",
         headers: { ...aiHeaders(config, "application/json"), Accept: "text/event-stream" },
         body: JSON.stringify({ ...body, stream: true }),
         signal: options?.signal,
-    });
+    }, options?.background, "openai-text");
     if (!response.ok) throw new Error(await readFetchError(response, apiText("requestFailed")));
     if (!response.body) {
         const payload = (await response.json()) as ResponseApiPayload;
@@ -581,12 +582,12 @@ function toGeminiToolOptions(tools: ResponseFunctionTool[], toolChoice: ToolChoi
 }
 
 async function requestGeminiStreamingResponse(config: AiConfig, body: Record<string, unknown>, onDelta?: (text: string) => void, options?: RequestOptions): Promise<ToolResponseResult> {
-    const response = await fetch(`${geminiApiUrl(config, "streamGenerateContent")}?alt=sse`, {
+    const response = await backgroundFetch(`${geminiApiUrl(config, "streamGenerateContent")}?alt=sse`, {
         method: "POST",
         headers: geminiHeaders(config),
         body: JSON.stringify(body),
         signal: options?.signal,
-    });
+    }, options?.background, "gemini-text");
     if (!response.ok) throw new Error(await readFetchError(response, apiText("requestFailed")));
     if (!response.body) {
         const payload = (await response.json()) as GeminiPayload;
@@ -620,6 +621,28 @@ function consumeGeminiStreamText(state: GeminiStreamState, text: string, onDelta
         consumeGeminiStreamBlock(state.buffer, state, onDelta);
         state.buffer = "";
     }
+}
+
+/** Parse a complete buffered text response when restoring a RAM-backed task. */
+export async function parseBackgroundText(response: Response, kind: BackgroundKind) {
+    if (!(response.headers.get("content-type") || "").includes("text/event-stream")) {
+        const payload = await response.json();
+        if (kind === "gemini-text") { validateGeminiPayload(payload); return parseGeminiToolResponse(payload).content; }
+        validateResponsePayload(payload);
+        return parseToolResponse(payload).content;
+    }
+    const text = await response.text();
+    if (kind === "gemini-text") {
+        const state: GeminiStreamState = { buffer: "", text: "", toolCalls: [] };
+        consumeGeminiStreamText(state, text, undefined, true);
+        if (state.error) throw new Error(state.error);
+        return state.text;
+    }
+    const state: ResponseStreamState = { buffer: "", text: "" };
+    consumeResponseStreamText(state, text, undefined, true);
+    if (state.error) throw new Error(state.error);
+    if (state.payload) validateResponsePayload(state.payload);
+    return state.text || (state.payload ? parseToolResponse(state.payload).content : "");
 }
 
 function consumeGeminiStreamBlock(block: string, state: GeminiStreamState, onDelta?: (text: string) => void) {
@@ -668,18 +691,19 @@ async function requestGeminiImagesOnce(config: AiConfig, prompt: string, referen
     for (const image of references) {
         parts.push(toGeminiImagePart(await imageToDataUrl(image)));
     }
-    const response = await axios.post<GeminiPayload>(
+    const response = await backgroundPost<GeminiPayload>(
         geminiApiUrl(config, "generateContent"),
         {
             ...toGeminiBody(config, [{ role: "user", content: prompt }], { generationConfig: geminiImageGenerationConfig(config.model, config) }),
             contents: [{ role: "user", parts }],
         },
         { headers: geminiHeaders(config), signal: options?.signal, timeout: IMAGE_REQUEST_TIMEOUT_MS },
+        options?.background, "gemini-image",
     );
     return parseGeminiImagePayload(response.data);
 }
 
-function parseGeminiImagePayload(payload: GeminiPayload) {
+export function parseGeminiImagePayload(payload: GeminiPayload) {
     validateGeminiPayload(payload);
     const images =
         payload.candidates
@@ -717,6 +741,7 @@ export async function requestGeneration(config: AiConfig, prompt: string, option
                 images: [],
                 params: imagePluginParams(config, requestConfig.model, n),
                 signal: options?.signal,
+                background: options?.background,
             });
             return normalizePluginImages(result).map((dataUrl) => ({ id: nanoid(), dataUrl }));
         } catch (error) {
@@ -735,7 +760,7 @@ export async function requestGeneration(config: AiConfig, prompt: string, option
     const requestSize = resolveRequestSize(quality, config.size);
     const background = normalizeBackground(config.background);
     try {
-        const response = await axios.post<ImageApiResponse>(
+        const response = await backgroundPost<ImageApiResponse>(
             aiApiUrl(requestConfig, "/images/generations"),
             {
                 model: requestConfig.model,
@@ -753,6 +778,7 @@ export async function requestGeneration(config: AiConfig, prompt: string, option
                 signal: options?.signal,
                 timeout: IMAGE_REQUEST_TIMEOUT_MS,
             },
+            options?.background, "openai-image",
         );
         const images = await parseImagePayload(response.data);
         return images;
@@ -777,6 +803,7 @@ export async function requestEdit(config: AiConfig, prompt: string, references: 
                 images: refs,
                 params: imagePluginParams(config, requestConfig.model, n),
                 signal: options?.signal,
+                background: options?.background,
             });
             return normalizePluginImages(result).map((dataUrl) => ({ id: nanoid(), dataUrl }));
         } catch (error) {
@@ -818,7 +845,7 @@ export async function requestEdit(config: AiConfig, prompt: string, references: 
     files.forEach((file) => formData.append(imageField, file));
 
     try {
-        const response = await axios.post<ImageApiResponse>(aiApiUrl(requestConfig, "/images/edits"), formData, { headers: aiHeaders(requestConfig), signal: options?.signal, timeout: IMAGE_REQUEST_TIMEOUT_MS });
+        const response = await backgroundPost<ImageApiResponse>(aiApiUrl(requestConfig, "/images/edits"), formData, { headers: aiHeaders(requestConfig), signal: options?.signal, timeout: IMAGE_REQUEST_TIMEOUT_MS }, options?.background, "openai-image");
         const images = await parseImagePayload(response.data);
         return images;
     } catch (error) {
@@ -838,6 +865,7 @@ export async function requestImageQuestion(config: AiConfig, messages: AiTextMes
                 messages: withSystemMessage(requestConfig, messages),
                 signal: options?.signal,
                 onDelta,
+                background: options?.background,
             });
             const text = String(answer ?? "").trim() || apiText("noContent");
             if (text === apiText("noContent")) onDelta(text);

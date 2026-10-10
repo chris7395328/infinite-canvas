@@ -44,6 +44,7 @@ const CANVAS_STORE_KEY = "infinite-canvas:canvas_store";
 type PersistedCanvasState = Pick<CanvasStore, "projects" | "deletedProjects">;
 let saveTimer: ReturnType<typeof setTimeout> | null = null;
 let queuedPersistState: PersistedCanvasState | null = null;
+let pendingWrite: Promise<unknown> = Promise.resolve();
 
 const canvasStorage: PersistStorage<CanvasStore> = {
     getItem: async (name) => {
@@ -60,11 +61,21 @@ const canvasStorage: PersistStorage<CanvasStore> = {
         if (saveTimer) clearTimeout(saveTimer);
         saveTimer = setTimeout(() => {
             saveTimer = null;
-            void localForageStorage.setItem(name, JSON.stringify(value));
+            pendingWrite = pendingWrite.catch(() => undefined).then(() => localForageStorage.setItem(name, JSON.stringify(value)));
         }, 400);
     },
     removeItem: (name) => localForageStorage.removeItem(name),
 };
+
+/** A background-task ACK must not rely on the debounced canvas write. */
+export async function flushCanvasStore() {
+    if (saveTimer) clearTimeout(saveTimer);
+    saveTimer = null;
+    const { projects, deletedProjects } = useCanvasStore.getState();
+    const value = JSON.stringify({ state: { projects, deletedProjects }, version: 0 });
+    pendingWrite = pendingWrite.catch(() => undefined).then(() => localForageStorage.setItem(CANVAS_STORE_KEY, value));
+    await pendingWrite;
+}
 
 export const useCanvasStore = create<CanvasStore>()(
     persist(

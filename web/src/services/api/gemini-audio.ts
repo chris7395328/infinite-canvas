@@ -4,6 +4,7 @@ import { dataUrlToFile, readFileAsDataUrl } from "@/lib/image-utils";
 import { imageToDataUrl } from "@/services/image-storage";
 import { resolveModelRequestConfig, withLocalProxy, type AiConfig } from "@/stores/use-config-store";
 import type { ReferenceImage } from "@/types/image";
+import { backgroundPost, type BackgroundContext } from "./background-tasks";
 
 export type GeminiAudioResult = { blob: Blob; audioText?: string; audioInteractionId?: string };
 type AudioBlock = { type?: string; data?: string; uri?: string; mime_type?: string; text?: string };
@@ -65,7 +66,7 @@ export function buildGeminiAudioBody(model: string, prompt: string, value?: Gemi
     return { model, store: false, input: `${prompt}${directions ? `\n\n音乐指令：\n${directions}` : ""}${lyrics}`, ...(settings.musicFormat === "wav" ? { response_format: { type: "audio" } } : {}) };
 }
 
-export async function requestGeminiAudio(config: AiConfig, prompt: string, options?: { signal?: AbortSignal; images?: ReferenceImage[] }): Promise<GeminiAudioResult> {
+export async function requestGeminiAudio(config: AiConfig, prompt: string, options?: { signal?: AbortSignal; images?: ReferenceImage[]; background?: BackgroundContext }): Promise<GeminiAudioResult> {
     const resolved = geminiAudioConfig(config);
     const caps = geminiAudioCapabilities(resolved.model);
     const body: Record<string, unknown> = buildGeminiAudioBody(resolved.model, prompt, config.geminiAudio);
@@ -77,20 +78,24 @@ export async function requestGeminiAudio(config: AiConfig, prompt: string, optio
             return { type: "image", mime_type: match[1], data: match[2] };
         }))];
     }
-    const { data } = await axios.post<Interaction>(endpoint(resolved, "interactions"), body, { headers: headers(resolved), signal: options?.signal });
+    const { data } = await backgroundPost<Interaction>(endpoint(resolved, "interactions"), body, { headers: headers(resolved), signal: options?.signal }, options?.background, "gemini-audio", caps?.kind === "tts" ? `audio/${normalizeGeminiAudio(resolved.model, config.geminiAudio).encoding}` : normalizeGeminiAudio(resolved.model, config.geminiAudio).musicFormat === "wav" ? "audio/wav" : "audio/mpeg");
+    const fallbackMime = caps?.kind === "tts" ? `audio/${normalizeGeminiAudio(resolved.model, config.geminiAudio).encoding}` : normalizeGeminiAudio(resolved.model, config.geminiAudio).musicFormat === "wav" ? "audio/wav" : "audio/mpeg";
+    return parseGeminiAudioResponse(data, fallbackMime, { signal: options?.signal, baseUrl: resolved.baseUrl, apiKey: resolved.apiKey });
+}
+
+export async function parseGeminiAudioResponse(data: Interaction, fallbackMime: string, options?: { signal?: AbortSignal; baseUrl?: string; apiKey?: string }): Promise<GeminiAudioResult> {
     if (data.error || (data.status && data.status !== "completed")) throw new Error(data.error?.message || `音频任务未完成：${data.status}。`);
     const blocks = (data.steps || []).filter((step) => step.type === "model_output").flatMap((step) => step.content || []);
     const audio = blocks.filter((block) => block.type === "audio").at(-1);
     if (!audio?.data && !audio?.uri) throw new Error("Google 未返回音频，可能被安全策略拦截。请查看提示词或更换后重试。");
-    const fallbackMime = caps?.kind === "tts" ? `audio/${normalizeGeminiAudio(resolved.model, config.geminiAudio).encoding}` : normalizeGeminiAudio(resolved.model, config.geminiAudio).musicFormat === "wav" ? "audio/wav" : "audio/mpeg";
     let blob: Blob;
     if (audio.data) {
         options?.signal?.throwIfAborted();
         blob = dataUrlToFile({ dataUrl: `data:${audio.mime_type || fallbackMime};base64,${audio.data}` });
     }
     else {
-        const authenticated = new URL(audio.uri!).origin === new URL(resolved.baseUrl).origin;
-        const response = await fetch(withLocalProxy(audio.uri!), { ...(authenticated ? { headers: headers(resolved) } : {}), signal: options?.signal });
+        const authenticated = options?.baseUrl && new URL(audio.uri!).origin === new URL(options.baseUrl).origin;
+        const response = await fetch(withLocalProxy(audio.uri!), { ...(authenticated && options?.apiKey ? { headers: { "x-goog-api-key": options.apiKey } } : {}), signal: options?.signal });
         if (!response.ok) throw new Error(`音频下载失败（${response.status}）。`);
         blob = await response.blob();
     }

@@ -63,6 +63,8 @@ export async function cleanupUnusedMedia(usedData: unknown) {
 /** Remove audio/video files that are not referenced by the supplied live data. */
 export async function cleanupMediaFiles(usedKeys: Iterable<string>) {
     const used = new Set(usedKeys);
+    const { backgroundTasks } = await import("@/services/api/background-tasks");
+    collectMediaStorageKeys(await backgroundTasks(), used);
     const unused: string[] = [];
     let bytes = 0;
     await store.iterate((value, key) => {

@@ -8,8 +8,9 @@ import { runModelPlugin } from "./model-plugin";
 import { buildGeminiAudioBody, requestGeminiAudio, type GeminiAudioResult } from "./gemini-audio";
 import { geminiAudioCapabilities, normalizeGeminiAudio } from "@/lib/gemini-audio";
 import type { ReferenceImage } from "@/types/image";
+import { backgroundPost, type BackgroundContext } from "./background-tasks";
 
-type RequestOptions = { signal?: AbortSignal; images?: ReferenceImage[] };
+type RequestOptions = { signal?: AbortSignal; images?: ReferenceImage[]; background?: BackgroundContext };
 const apiText = (key: string, options?: Record<string, unknown>) => i18n.t(`apiErrors.${key}`, options);
 
 function aiApiUrl(config: AiConfig, path: string) {
@@ -42,6 +43,7 @@ export async function requestAudioGeneration(config: AiConfig, prompt: string, o
                 prompt,
                 params: geminiAudioCapabilities(model) ? { geminiAudio: normalizeGeminiAudio(model, config.geminiAudio), requestBody: buildGeminiAudioBody(model, prompt, config.geminiAudio), images: options?.images || [] } : { voice: normalizeAudioVoiceValue(config.audioVoice), format, speed: normalizeAudioSpeedValue(config.audioSpeed), instructions: config.audioInstructions.trim() },
                 signal: options?.signal,
+                background: options?.background,
             });
             return await audioPluginBlob(result, format);
         } catch (error) {
@@ -59,7 +61,7 @@ export async function requestAudioGeneration(config: AiConfig, prompt: string, o
     const instructions = config.audioInstructions.trim();
 
     try {
-        const response = await axios.post<Blob>(
+        const response = await backgroundPost<Blob>(
             aiApiUrl(requestConfig, "/audio/speech"),
             {
                 model,
@@ -70,6 +72,7 @@ export async function requestAudioGeneration(config: AiConfig, prompt: string, o
                 ...(instructions ? { instructions } : {}),
             },
             { headers: aiHeaders(requestConfig), responseType: "blob", signal: options?.signal },
+            options?.background, "openai-audio", audioMimeType(format),
         );
         await assertAudioBlob(response.data);
         return response.data.type.startsWith("audio/") ? response.data : new Blob([response.data], { type: audioMimeType(format) });
@@ -78,7 +81,7 @@ export async function requestAudioGeneration(config: AiConfig, prompt: string, o
     }
 }
 
-async function audioPluginBlob(result: unknown, format: string): Promise<Blob> {
+export async function audioPluginBlob(result: unknown, format: string): Promise<Blob> {
     if (result instanceof Blob) return result.type.startsWith("audio/") ? result : new Blob([result], { type: audioMimeType(format) });
     let source = "";
     if (typeof result === "string") source = result;
@@ -104,7 +107,7 @@ function assertAudioConfig(config: AiConfig, model: string) {
     if (!config.apiKey.trim()) throw new Error(apiText("apiKeyRequired"));
 }
 
-async function assertAudioBlob(blob: Blob) {
+export async function assertAudioBlob(blob: Blob) {
     if (!blob.type.includes("json")) return;
     let payload: { code?: number; msg?: string; error?: { message?: string } };
     try {

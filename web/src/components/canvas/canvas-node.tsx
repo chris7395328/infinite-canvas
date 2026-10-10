@@ -520,7 +520,7 @@ function ErrorContent({ node, theme, onRetry }: Pick<NodeContentRendererProps, "
                 onMouseDown={(event) => event.stopPropagation()}
             >
                 <RefreshCw className="size-3.5" />
-                {t("canvas.node.retry")}
+                {t(node.metadata?.generationRecovery === "memory" ? "canvas.node.queryOriginalTask" : "canvas.node.retry")}
             </button>
         </div>
     );
@@ -796,7 +796,7 @@ function ImageContent({
                     <ImageSlotStatus image={primaryImage} />
                 )}
             </div>
-            {primaryImage?.status === "error" ? <BatchImageFailureActions placement="left" onRetry={() => onRetryBatchImage?.(primaryImage.id)} onDelete={() => onDeleteBatchImage?.(primaryImage.id)} /> : null}
+            {primaryImage?.status === "error" ? <BatchImageFailureActions memoryTask={node.metadata?.generationRecovery === "memory"} placement="left" onRetry={() => onRetryBatchImage?.(primaryImage.id)} onDelete={() => onDeleteBatchImage?.(primaryImage.id)} /> : null}
             {primaryImage?.content ? (
                 <button type="button" className="pointer-events-none absolute left-2.5 top-2.5 z-30 flex h-8 items-center gap-1 rounded-lg border px-2 text-[10px] font-medium opacity-0 shadow-[0_6px_18px_rgba(15,23,42,.16)] backdrop-blur-md transition hover:scale-[1.02] group-hover/node:pointer-events-auto group-hover/node:opacity-100" style={{ background: theme.toolbar.panel, borderColor: theme.toolbar.border, color: theme.toolbar.activeText }} title={t("common.download")} onClick={(event) => (event.stopPropagation(), onDownloadBatchImage?.(primaryImage.id))}>
                     <Download className="size-3" />
@@ -891,19 +891,19 @@ function ExpandedImageCard({ node, image, index, scale, onView, onSetPrimary, on
                     </button>
                 </div>
             ) : null}
-            {image.status === "error" ? <BatchImageFailureActions placement="right" onRetry={onRetry} onDelete={onDelete} /> : null}
+            {image.status === "error" ? <BatchImageFailureActions memoryTask={node.metadata?.generationRecovery === "memory"} placement="right" onRetry={onRetry} onDelete={onDelete} /> : null}
         </div>
     );
 }
 
-function BatchImageFailureActions({ placement, onRetry, onDelete }: { placement: "left" | "right"; onRetry: () => void; onDelete: () => void }) {
+function BatchImageFailureActions({ placement, onRetry, onDelete, memoryTask }: { placement: "left" | "right"; onRetry: () => void; onDelete: () => void; memoryTask?: boolean }) {
     const theme = canvasThemes[useThemeStore((state) => state.theme)];
     const { t } = useTranslation();
     return (
         <div className={`absolute top-3 z-30 flex items-center gap-1.5 ${placement === "left" ? "left-3" : "right-3"}`}>
             <button type="button" className="flex h-8 items-center gap-1.5 rounded-lg border px-2.5 text-xs font-medium shadow-sm transition hover:scale-[1.02]" style={{ background: theme.toolbar.panel, borderColor: theme.toolbar.border, color: theme.node.text }} onClick={(event) => (event.stopPropagation(), onRetry())}>
                 <RefreshCw className="size-3.5" />
-                {t("canvas.node.retry")}
+                {t(memoryTask ? "canvas.node.queryOriginalTask" : "canvas.node.retry")}
             </button>
             <button type="button" className="grid size-8 place-items-center rounded-lg border shadow-sm transition hover:scale-[1.02]" style={{ background: theme.toolbar.panel, borderColor: theme.toolbar.border, color: theme.node.text }} onClick={(event) => (event.stopPropagation(), onDelete())} aria-label={t("common.delete")} title={t("common.delete")}>
                 <Trash2 className="size-3.5" />

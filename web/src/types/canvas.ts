@@ -45,6 +45,7 @@ export type CanvasNodeText = {
 };
 
 export type CanvasNodeMetadata = {
+    generationRecovery?: "memory";
     geminiAudio?: import("@/lib/gemini-audio").GeminiAudioSettings;
     audioText?: string;
     audioInteractionId?: string;

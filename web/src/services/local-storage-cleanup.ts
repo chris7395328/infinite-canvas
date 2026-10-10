@@ -4,6 +4,7 @@ import { collectMediaStorageKeys, cleanupMediaFiles } from "@/services/file-stor
 import { collectImageStorageKeys, cleanupImageFiles } from "@/services/image-storage";
 import { useAssetStore } from "@/stores/use-asset-store";
 import { useCanvasStore } from "@/stores/canvas/use-canvas-store";
+import { backgroundTasks } from "@/services/api/background-tasks";
 
 const imageLogStore = localforage.createInstance({ name: "infinite-canvas", storeName: "image_generation_logs" });
 const videoLogStore = localforage.createInstance({ name: "infinite-canvas", storeName: "video_generation_logs" });
@@ -23,6 +24,7 @@ export async function cleanupUnreferencedHistoryFiles(): Promise<LocalStorageCle
     const liveData = {
         projects: useCanvasStore.getState().projects,
         assets: useAssetStore.getState().assets,
+        background: await backgroundTasks(),
     };
     const imageKeys = collectImageStorageKeys(liveData);
     const mediaKeys = collectMediaStorageKeys(liveData);
