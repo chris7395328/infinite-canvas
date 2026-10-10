@@ -6,7 +6,7 @@ import { dataUrlToFile, readFileAsDataUrl } from "@/lib/image-utils";
 import { clampVideoSeconds, computeVideoSize, inferVideoRatio } from "@/lib/media-size";
 import { getMediaBlob, resolveMediaUrl, uploadMediaFile, type UploadedFile } from "@/services/file-storage";
 import { imageToDataUrl } from "@/services/image-storage";
-import { boolConfig, buildApiUrl, isVolcengineSeedance25, modelOptionName, resolveModelRequestConfig, resolveModelScript, withLocalProxy, type AiConfig } from "@/stores/use-config-store";
+import { assertModelAvailable, boolConfig, buildApiUrl, isVolcengineSeedance25, modelOptionName, resolveModelRequestConfig, resolveModelScript, withLocalProxy, type AiConfig } from "@/stores/use-config-store";
 import { getVolcengineSeedanceScript, runModelPlugin } from "./model-plugin";
 import { pollMoyuSeedanceTask } from "./moyu-video";
 import type { ReferenceImage } from "@/types/image";
@@ -72,6 +72,7 @@ function videoTaskFailed(message: string) {
 
 export async function createVideoGenerationTask(config: AiConfig, prompt: string, references: ReferenceImage[] = [], options?: VideoMediaOptions): Promise<VideoGenerationTask> {
     const selectedModel = (config.model || config.videoModel).trim();
+    assertModelAvailable(config, selectedModel);
     const requestConfig = resolveModelRequestConfig(config, selectedModel);
     // The channel's exact selected model and user script are authoritative.
     // Never pick a third-party adapter by host or model alias.
@@ -89,6 +90,7 @@ export async function pollVideoGenerationTask(config: AiConfig, task: VideoGener
         const result = pluginVideoResults.get(task.id);
         return result ? { status: "completed", result } : { status: "failed", error: apiText("pluginVideoExpired") };
     }
+    assertModelAvailable(config, task.model);
     const requestConfig = resolveModelRequestConfig(config, task.model);
     assertVideoConfig(requestConfig, requestConfig.model);
     if (task.provider === "moyu") {

@@ -1,10 +1,13 @@
-import { App, Button, Form, Input, Modal, Progress, Select, Tabs } from "antd";
+import { App, Button, Form, Input, Modal, Progress, Select, Switch, Tabs } from "antd";
 import type { TFunction } from "i18next";
 import { Cloud, Download, Pencil, Plus, RefreshCw, Trash2, Upload, Wifi } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 
 import { ModelPicker } from "@/components/model-picker";
+import { videoResolutionOptions } from "@/components/video-settings-panel";
+import { computeMediaSize, inferMediaRatio, inferMediaScale, mediaScaleOptions, parseVideoResolution } from "@/lib/media-size";
+import { geminiImageCapabilities, normalizeGeminiImageSettings } from "@/lib/gemini-image";
 import { ChannelEditorDrawer } from "@/components/layout/channel-editor-drawer";
 import { ConfigLocalProxy } from "@/components/layout/config-local-proxy";
 import { ConfigPromptSources } from "@/components/layout/config-prompt-sources";
@@ -69,6 +72,8 @@ export function AppConfigPanel({ showDoneButton = false, initialTab = "channels"
     const webdavReady = Boolean(webdav.url.trim());
     const editingChannel = config.channels.find((channel) => channel.id === editingChannelId) || null;
     const locale = i18n.resolvedLanguage as AppLocale;
+    const geminiImage = geminiImageCapabilities(config.imageModel);
+    const imageResolutionOptions = (geminiImage?.sizes || mediaScaleOptions).map((value) => ({ value, label: value === "auto" ? t("settingsPanels.common.auto") : value.toUpperCase() }));
     useEffect(() => setActiveTab(initialTab), [initialTab]);
 
     const saveConfig = (nextConfig: AiConfig) => {
@@ -259,6 +264,15 @@ export function AppConfigPanel({ showDoneButton = false, initialTab = "channels"
                                             onChange={(event) => updateConfig("canvasImageCount", event.target.value)}
                                             onBlur={(event) => updateConfig("canvasImageCount", normalizeImageCount(event.target.value))}
                                         />
+                                    </Form.Item>
+                                    <Form.Item label={t("config.preferences.imageResolution")} className="mb-4">
+                                        <Select value={geminiImage ? normalizeGeminiImageSettings(config.imageModel, config).geminiImageSize : inferMediaScale(config.size)} options={imageResolutionOptions} onChange={(value) => geminiImage ? updateConfig("geminiImageSize", value) : updateConfig("size", computeMediaSize(value, inferMediaRatio(config.size)))} />
+                                    </Form.Item>
+                                    <Form.Item label={t("config.preferences.videoResolution")} className="mb-4">
+                                        <Select value={parseVideoResolution(config.vquality)} options={videoResolutionOptions} onChange={(value) => updateConfig("vquality", value)} />
+                                    </Form.Item>
+                                    <Form.Item label={t("config.preferences.autoFocusOnSelect")} className="mb-4">
+                                        <Switch checked={config.autoFocusOnSelect} onChange={(value) => updateConfig("autoFocusOnSelect", value)} />
                                     </Form.Item>
                                     <Form.Item label={t("config.preferences.audioVoice")} className="mb-4">
                                         <Select value={config.audioVoice} options={audioVoiceOptions} onChange={(value) => updateConfig("audioVoice", value)} />

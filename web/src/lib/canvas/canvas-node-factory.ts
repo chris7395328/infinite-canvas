@@ -26,6 +26,22 @@ export function createCanvasNode(type: CanvasNodeTypeId, position: Position, met
     };
 }
 
+export function copyNodeMetadata(metadata: CanvasNodeMetadata | undefined): CanvasNodeMetadata | undefined {
+    if (!metadata) return undefined;
+    const interrupted = "复制节点未继承原任务，请点击生成创建新任务。";
+    return {
+        ...metadata,
+        generationRecovery: undefined,
+        videoTaskId: undefined,
+        videoTaskProvider: undefined,
+        seedanceDraftTaskId: undefined,
+        status: metadata.status === "loading" ? "error" : metadata.status,
+        errorDetails: metadata.status === "loading" ? interrupted : metadata.errorDetails,
+        images: metadata.images?.map((image) => image.status === "loading" ? { ...image, status: "error", errorDetails: interrupted } : { ...image }),
+        texts: metadata.texts?.map((text) => text.status === "loading" ? { ...text, status: "error", errorDetails: interrupted } : { ...text }),
+    };
+}
+
 export function imageMetadata(image: UploadedImage): CanvasNodeMetadata {
     return { content: image.url, storageKey: image.storageKey, status: "success", naturalWidth: image.width, naturalHeight: image.height, bytes: image.bytes, mimeType: image.mimeType };
 }
