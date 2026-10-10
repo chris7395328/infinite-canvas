@@ -3013,14 +3013,16 @@ function InfiniteCanvasPage() {
             const tasks = (await backgroundTasks(projectId)).filter((task) => task.nodeId === node.id && (!imageId || task.itemId === imageId) && (!task.plugin || task.plugin.index === 0));
             if (tasks.length) {
                 const controller = startGenerationRequest(node.id, node.id, node.id);
-                setNodes((prev) => prev.map((item) => item.id === node.id ? { ...item, metadata: { ...item.metadata, status: NODE_STATUS_LOADING, errorDetails: undefined } } : item));
+                const slots = new Set(tasks.map((task) => task.itemId));
+                setNodes((prev) => prev.map((item) => item.id === node.id ? { ...item, metadata: { ...item.metadata, status: NODE_STATUS_LOADING, errorDetails: undefined, images: item.metadata?.images?.map((image) => slots.has(image.id) ? { ...image, status: "loading", errorDetails: undefined } : image), texts: item.metadata?.texts?.map((text) => slots.has(text.id) ? { ...text, status: "loading", errorDetails: undefined } : text) } } : item));
                 try {
                     for (const task of tasks) {
                         const saved = await recoverBackgroundResult(task, node, controller.signal);
                         setNodes((prev) => prev.map((item) => item.id === node.id ? applyBackgroundResult(item, task, saved) : item));
                     }
                 } catch (error) {
-                    if (!isGenerationCanceled(error)) setNodes((prev) => prev.map((item) => item.id === node.id ? { ...item, metadata: { ...item.metadata, status: NODE_STATUS_ERROR, errorDetails: error instanceof Error ? error.message : "原任务查询失败，未重新生成。" } } : item));
+                    const errorDetails = error instanceof Error ? error.message : "原任务查询失败，未重新生成。";
+                    if (!isGenerationCanceled(error)) setNodes((prev) => prev.map((item) => item.id === node.id ? { ...item, metadata: { ...item.metadata, status: NODE_STATUS_ERROR, errorDetails, images: item.metadata?.images?.map((image) => slots.has(image.id) && image.status === "loading" ? { ...image, status: "error", errorDetails } : image), texts: item.metadata?.texts?.map((text) => slots.has(text.id) && text.status === "loading" ? { ...text, status: "error", errorDetails } : text) } } : item));
                 } finally { finishGenerationRequest(node.id, controller); }
                 return;
             }
