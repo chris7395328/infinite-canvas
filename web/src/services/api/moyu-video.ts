@@ -5,8 +5,10 @@ import { imageToDataUrl } from "@/services/image-storage";
 import { modelOptionName, normalizeLocalProxyUrl, withLocalProxy, type AiConfig } from "@/stores/use-config-store";
 import type { ReferenceImage } from "@/types/image";
 import type { ReferenceAudio, ReferenceVideo } from "@/types/media";
+import { backgroundPost, type BackgroundContext } from "./background-tasks";
+import { useConfigStore } from "@/stores/use-config-store";
 
-type MediaOptions = { signal?: AbortSignal; videos?: ReferenceVideo[]; audios?: ReferenceAudio[] };
+type MediaOptions = { signal?: AbortSignal; background?: BackgroundContext; videos?: ReferenceVideo[]; audios?: ReferenceAudio[] };
 type MoyuTaskResponse = { id?: string; task_id?: string; code?: string; message?: string; data?: { task_id?: string } };
 type MoyuPollResponse = {
     code?: string; message?: string;
@@ -22,7 +24,7 @@ export function isMoyuSeedance(config: AiConfig) {
             && /^doubao-seedance-2-(0|5)/i.test(modelOptionName(config.model));
     } catch { return false; }
 }
-async function localMediaDataUrl(item: ReferenceVideo | ReferenceAudio, signal?: AbortSignal) {
+export async function localMediaDataUrl(item: ReferenceVideo | ReferenceAudio, signal?: AbortSignal) {
     const blob = item.storageKey ? await getMediaBlob(item.storageKey) : null;
     if (blob) return readFileAsDataUrl(new File([blob], item.name, { type: item.type || blob.type }));
     if (item.url.startsWith("data:")) return item.url;
@@ -33,8 +35,8 @@ async function localMediaDataUrl(item: ReferenceVideo | ReferenceAudio, signal?:
     return readFileAsDataUrl(new File([fetched], item.name, { type: item.type || fetched.type }));
 }
 
-async function uploadMoyuCos(dataUrl: string, kind: "image" | "video" | "audio", config: AiConfig, signal?: AbortSignal) {
-    if (!config.seedance.cosEnabled) throw new Error("魔芋参考素材必须上传 COS；请先开启 Seedance 设置中的 COS 上传");
+export async function uploadMoyuCos(dataUrl: string, kind: "image" | "video" | "audio", config: AiConfig, signal?: AbortSignal) {
+    if (!config.seedance.cosEnabled) throw new Error("该渠道的本地参考素材需要公网直链；请先开启 Seedance 设置中的 COS 上传");
     const bridge = normalizeLocalProxyUrl(config.seedance.bridgeUrl);
     if (!bridge) throw new Error("缺少本地 Bridge 地址，无法上传参考素材至 COS");
     const result = await axios.post<{ url?: string; error?: string }>(`${bridge}/seedance/cos-upload`,
@@ -78,6 +80,10 @@ export async function createMoyuSeedanceTask(config: AiConfig, prompt: string, i
     }
     // Do not fall back to the legacy /videos endpoint: the request might already have been billed.
     const url = withLocalProxy(`${config.baseUrl.replace(/\/+$/, "").replace(/\/v1$/i, "")}/v1/video/generations`);
+    if (options?.background && useConfigStore.getState().config.proxyEnabled) {
+        return (await backgroundPost<Blob>(url, { model: modelOptionName(config.model), prompt: prompt.trim(), metadata },
+            { headers: { Authorization: `Bearer ${config.apiKey}`, "Content-Type": "application/json" }, responseType: "blob", signal: options.signal }, options.background, "moyu-video")).data;
+    }
     const response = await axios.post<MoyuTaskResponse>(url,
         { model: modelOptionName(config.model), prompt: prompt.trim(), metadata },
         { headers: { Authorization: `Bearer ${config.apiKey}`, "Content-Type": "application/json" }, signal: options?.signal });

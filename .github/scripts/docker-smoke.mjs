@@ -10,12 +10,29 @@ const config = await (await fetch(`${base}/config.js`)).text();
 assert.match(config, /CANVAS_PROXY_PATH: "\/canvas-proxy"/);
 const identity = await (await fetch(`${base}/canvas-proxy/`)).json();
 assert.equal(identity.proxy, "@basketikun/canvas-proxy");
-assert.equal(identity.memoryTasks, 1);
+assert.equal(identity.memoryTasks, 2);
 
 // An isolated fixture verifies both proxy hops without calling providers or using credentials.
-const fixture = `let pending, pendingTask, taskCalls = 0;
+const fixture = `let pending, pendingTask, taskCalls = 0, videoCalls = 0, videoPolls = 0;
 require('node:http').createServer(async (req,res) => {
   let body = ''; for await (const chunk of req) body += chunk;
+  if (req.url === '/videos/generations') {
+    videoCalls++;
+    const input = JSON.parse(body);
+    if (input.model !== 'seedance-933' || input.duration !== 10 || input.resolution !== '720p' || req.headers['x-canvas-task-key'] || !req.headers['content-type'].includes('application/json')) { res.writeHead(400); res.end('bad request'); return; }
+    res.setHeader('content-type','application/json'); res.end(JSON.stringify({data:{id:'original-task',status:'queued'}})); return;
+  }
+  if (req.url === '/videos/original-task') {
+    videoPolls++;
+    if (videoPolls === 1) { res.writeHead(503, {'Retry-After':'10'}); res.end('temporary'); return; }
+    res.setHeader('content-type','application/json');
+    res.end(JSON.stringify({data:{id:'original-task',status:'completed',video_url:'http://proxy:24123/video-redirect?signature=a%2Fb%2Bc'}})); return;
+  }
+  if (req.url === '/video-redirect?signature=a%2Fb%2Bc') { res.writeHead(302, {location:'http://127.0.0.1:24123/video-result?signature=a%2Fb%2Bc'}); res.end(); return; }
+  if (req.url === '/video-result?signature=a%2Fb%2Bc') {
+    if (req.headers.authorization || videoCalls !== 1 || videoPolls !== 2) { res.writeHead(403); res.end('leaked credentials or duplicate task'); return; }
+    res.setHeader('content-type','video/mp4'); res.end('fixture-video'); return;
+  }
   if (req.url === '/stream') {
     res.writeHead(200, {'content-type':'text/event-stream'});
     res.write('data: first\\n\\n');
@@ -98,6 +115,23 @@ async function verifyProxy() {
     assert.equal((await fetch(`${task}/result`, { headers: auth })).status, 200);
     assert.equal((await fetch(task, { method: "DELETE", headers: auth })).status, 200);
     assert.equal((await fetch(task, { headers: auth })).status, 404);
+    const videoTask = `${base}/canvas-proxy/_tasks/${randomUUID()}`;
+    const videoAuth = { "x-canvas-task-key": randomUUID() };
+    assert.equal((await fetch(videoTask, { method: "POST", headers: { ...videoAuth, "x-canvas-target-url": "http://proxy:24123/videos/generations", "x-canvas-video-protocol": "xing933", "content-type": "application/json", Authorization: "Bearer fixture-not-a-key" }, body: JSON.stringify({ model: "seedance-933", prompt: "offline fixture", duration: 10, resolution: "720p", ratio: "16:9" }) })).status, 202);
+    assert.equal((await (await fetch(videoTask, { headers: videoAuth })).json()).expiresAt, null);
+    let videoState;
+    for (let i = 0; i < 6; i++) {
+        await new Promise((resolve) => setTimeout(resolve, 10000));
+        videoState = await (await fetch(videoTask, { headers: videoAuth })).json();
+        if (videoState.state !== "running") break;
+    }
+    assert.equal(videoState.state, "completed", videoState.error);
+    assert.equal(videoState.upstreamId, "original-task");
+    assert.ok(videoState.expiresAt > Date.now());
+    const videoResult = await fetch(`${videoTask}/result`, { headers: videoAuth });
+    assert.equal(videoResult.headers.get("content-type"), "video/mp4");
+    assert.equal(await videoResult.text(), "fixture-video");
+    assert.equal((await fetch(videoTask, { method: "DELETE", headers: videoAuth })).status, 200);
     console.log("Compose smoke passed: frontend, proxy, signed URL, SSE and RAM task admission/recovery/idempotency/secret/ACK.");
 }
 await verifyProxy();

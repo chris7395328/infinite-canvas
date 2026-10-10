@@ -13,7 +13,7 @@ RUN bun run build
 FROM nginx:1.27-alpine
 
 RUN apk add --no-cache nodejs
-COPY canvas-proxy/index.js canvas-proxy/memory-tasks.js canvas-proxy/package.json /opt/canvas-proxy/
+COPY canvas-proxy/index.js canvas-proxy/memory-tasks.js canvas-proxy/video-tasks.js canvas-proxy/package.json /opt/canvas-proxy/
 COPY --from=web-build /app/web/dist /usr/share/nginx/html
 COPY nginx.conf /etc/nginx/conf.d/default.conf
 COPY web/docker-entrypoint.sh /docker-entrypoint.d/40-runtime-config.sh

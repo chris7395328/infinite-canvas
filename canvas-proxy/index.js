@@ -218,7 +218,7 @@ async function preparePrivateAsset(source, kind, settings) {
     const id = resultValue(result, "Id");
     if (!id) throw new Error("素材库未返回素材 ID");
     for (;;) {
-        await new Promise((resolve) => setTimeout(resolve, 3000));
+        await new Promise((resolve) => setTimeout(resolve, 10000));
         const statusResult = await callVolcAssetApi("GetAsset", { Id: id, ProjectName: required(settings.projectName, "方舟项目名称") }, settings);
         const status = String(resultValue(statusResult, "Status"));
         if (status.toLowerCase() === "active") return `asset://${id}`;
@@ -291,8 +291,17 @@ async function generateSeedance(input) {
     const taskId = createdBody.id;
     if (!taskId) throw new Error("方舟未返回任务 ID");
     for (;;) {
-        await new Promise((resolve) => setTimeout(resolve, 3000));
-        const response = await fetch(`${ARK_BASE_URL}/contents/generations/tasks/${encodeURIComponent(taskId)}`, { headers: { authorization: `Bearer ${apiKey}` } });
+        await new Promise((resolve) => setTimeout(resolve, 10000));
+        let response;
+        try { response = await fetch(`${ARK_BASE_URL}/contents/generations/tasks/${encodeURIComponent(taskId)}`, { headers: { authorization: `Bearer ${apiKey}` } }); }
+        catch { continue; } // Query the same paid task; never submit another POST.
+        if (response.status >= 500 || response.status === 429) {
+            const retry = response.headers.get("retry-after");
+            const wait = retry ? (/^\d+$/.test(retry) ? Number(retry) * 1000 : Date.parse(retry) - Date.now()) : 0;
+            await response.body?.cancel();
+            if (wait > 10000) await new Promise((resolve) => setTimeout(resolve, wait - 10000));
+            continue;
+        }
         const task = await response.json().catch(() => ({}));
         if (!response.ok) throw new Error(`方舟查询任务失败 (${response.status})：${task.error?.message || task.message || "未返回错误说明"}`);
         const url = task.content?.video_url || task.video_url || task.url;
@@ -371,7 +380,7 @@ export function createProxyServer() {
         }
         const target = readTarget(req.url || "/");
         if (!target) {
-            sendJson(res, 200, { app: "infinite-canvas", proxy: pkg.name, version: pkg.version, memoryTasks: 1, usage: "/<full-target-url>" });
+            sendJson(res, 200, { app: "infinite-canvas", proxy: pkg.name, version: pkg.version, memoryTasks: 2, usage: "/<full-target-url>" });
             return;
         }
         const startedAt = Date.now();

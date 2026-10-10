@@ -1,7 +1,7 @@
 import { acknowledgeBackgroundTask, waitBackgroundTask, type BackgroundTask } from "./api/background-tasks";
 import { parseGeminiAudioResponse } from "./api/gemini-audio";
 import { assertAudioBlob, audioPluginBlob, storeGeneratedAudio } from "./api/audio";
-import { storeGeneratedVideo, videoPluginResult } from "./api/video";
+import { assertVideoBlob, storeGeneratedVideo, videoPluginResult } from "./api/video";
 import { getPluginTemplates, getVolcengineSeedanceScript, normalizePluginImages, runModelPlugin } from "./api/model-plugin";
 import { resolveModelRequestConfig, useConfigStore } from "@/stores/use-config-store";
 import { parseBackgroundText, parseGeminiImagePayload, parseImagePayload } from "./api/image";
@@ -58,7 +58,8 @@ export async function recoverBackgroundResult(task: BackgroundTask, node: Canvas
         const item: CanvasNodeImage = { id: task.itemId || image.id, status: "success", content: uploaded.url, storageKey: uploaded.storageKey, naturalWidth: uploaded.width, naturalHeight: uploaded.height, bytes: uploaded.bytes, mimeType: uploaded.mimeType };
         saved = { ...node, metadata: { ...node.metadata, ...imageMetadata(uploaded), ...(task.itemId ? { images: [item], primaryImageId: item.id } : {}), errorDetails: undefined } };
     } else if (task.kind.endsWith("video")) {
-        const result = videoPluginResult(pluginResult);
+        const result = task.plugin ? videoPluginResult(pluginResult) : { blob: await response!.blob() };
+        if (result.blob) await assertVideoBlob(result.blob);
         const video = await storeGeneratedVideo(result);
         if (!video.storageKey) throw new Error("视频已生成，但文件尚未成功保存到浏览器。后台结果仍保留，未重新生成。");
         saved = { ...node, metadata: { ...node.metadata, ...videoMetadata(video), ...(result.draftTaskId && node.metadata?.seedanceDraft ? { seedanceDraftTaskId: result.draftTaskId } : {}), errorDetails: undefined } };

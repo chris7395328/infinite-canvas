@@ -104,14 +104,11 @@ function sleep(ms: number, signal?: AbortSignal) {
 
 function createPoll(signal?: AbortSignal) {
     return async function poll<T, R>(request: () => Promise<T>, extract: (value: T) => R | null | undefined | false, options?: PluginPollOptions): Promise<R> {
-        const intervalMs = options?.intervalMs ?? 2500;
-        const timeoutMs = options?.timeoutMs ?? 300000;
-        const deadline = performance.now() + timeoutMs;
+        const intervalMs = Math.max(10000, options?.intervalMs || 10000);
         for (;;) {
             if (signal?.aborted) throw new DOMException("Aborted", "AbortError");
             const result = extract(await request());
             if (result !== null && result !== undefined && result !== false) return result;
-            if (performance.now() >= deadline) throw new Error(i18n.t("modelPlugin.pollTimeout"));
             await sleep(intervalMs, signal);
         }
     };

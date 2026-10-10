@@ -2,6 +2,8 @@ import { createHash } from "node:crypto";
 import { Readable } from "node:stream";
 import { request as httpRequest } from "node:http";
 import { request as httpsRequest } from "node:https";
+import { resolveVideoTask } from "./video-tasks.js";
+import { setTimeout as pause } from "node:timers/promises";
 
 // Payload budget, not total Node RSS. No task data is written to disk.
 const BUDGET = 256 * 1024 * 1024;
@@ -35,11 +37,12 @@ export function createMemoryTasks() {
         task.bytes = OVERHEAD;
         task.chunks = [];
         task.state = "failed";
+        task.finishedAt = Date.now();
         task.error = error instanceof Error ? error.message : String(error);
         task.controller.abort();
     };
     const sweep = () => {
-        for (const task of tasks.values()) if (Date.now() - task.createdAt >= RETENTION) release(task);
+        for (const task of tasks.values()) if (task.finishedAt && Date.now() - task.finishedAt >= RETENTION) release(task);
     };
     const timer = setInterval(sweep, 60_000);
     timer.unref();
@@ -61,6 +64,8 @@ export function createMemoryTasks() {
                 target = new URL(rawTarget === "/seedance/video" ? `http://127.0.0.1:${req.socket.localPort}/seedance/video` : rawTarget);
                 if (!["http:", "https:"].includes(target.protocol) || target.username || target.password) throw new Error();
             } catch { json(res, 400, { error: "无效的上游地址" }); return; }
+            const protocol = req.headers["x-canvas-video-protocol"];
+            if (protocol && !["openai", "gemini", "omni", "moyu", "xing933"].includes(protocol)) { req.resume(); json(res, 400, { error: "未知视频任务协议，未提交生成。" }); return; }
             if (bytes + OVERHEAD > BUDGET) { req.resume(); json(res, 507, { error: "后台任务内存预算已满（256 MiB），未提交生成。" }); return; }
             task = { id, key: digest(token), state: "uploading", createdAt: Date.now(), bytes: 0, chunks: [], controller: new AbortController() };
             tasks.set(id, task);
@@ -76,30 +81,97 @@ export function createMemoryTasks() {
             }
             const body = Readable.from(task.chunks);
             task.state = "running";
+            const request = (url, method, requestHeaders, source) => new Promise((resolve, reject) => {
+                const parsed = new URL(url);
+                if (!["http:", "https:"].includes(parsed.protocol) || parsed.username || parsed.password) { reject(new Error("无效的结果地址")); return; }
+                const outgoing = (parsed.protocol === "https:" ? httpsRequest : httpRequest)(parsed, { method, headers: requestHeaders, signal: task.controller.signal }, resolve);
+                outgoing.once("error", reject);
+                if (source) { source.once("error", (error) => outgoing.destroy(error)); source.pipe(outgoing); }
+                else outgoing.end();
+            });
+            const collect = async (upstream) => {
+                if (tasks.get(id) !== task) { upstream.destroy(); task.controller.signal.throwIfAborted(); return; }
+                bytes -= task.bytes - OVERHEAD;
+                task.bytes = OVERHEAD;
+                task.chunks = [];
+                task.status = upstream.statusCode || 502;
+                task.contentType = upstream.headers["content-type"] || "application/octet-stream";
+                for await (const chunk of upstream) {
+                    task.controller.signal.throwIfAborted();
+                    reserve(task, chunk.length);
+                    task.chunks.push(chunk);
+                }
+            };
+            const read = async (url, requestHeaders) => {
+                const upstream = await request(url, "GET", requestHeaders);
+                const retry = upstream.headers["retry-after"];
+                task.retryAfter = retry ? Math.max(10000, /^\d+(\.\d+)?$/.test(retry) ? Number(retry) * 1000 : Date.parse(retry) - Date.now()) : 10000;
+                await collect(upstream);
+                if (task.status < 200 || task.status >= 300) throw new Error(`原任务查询返回 HTTP ${task.status}`);
+                return JSON.parse(Buffer.concat(task.chunks).toString("utf8"));
+            };
             // This work deliberately outlives the browser connection. Never log credentials or bodies.
             void (async () => {
                 try {
                     // Native HTTP avoids fetch's implicit headers timeout for long synchronous generation.
-                    // The approved task retention/AbortController is the lifetime boundary; no retries/redirects.
-                    const upstream = await new Promise((resolve, reject) => {
-                        const outgoing = (target.protocol === "https:" ? httpsRequest : httpRequest)(target, { method: "POST", headers, signal: task.controller.signal }, resolve);
-                        outgoing.once("error", reject);
-                        body.once("error", (error) => outgoing.destroy(error));
-                        body.pipe(outgoing);
-                    });
-                    if (tasks.get(id) !== task) { upstream.destroy(); return; }
-                    bytes -= task.bytes - OVERHEAD;
-                    task.bytes = OVERHEAD;
-                    task.chunks = [];
-                    task.status = upstream.statusCode || 502;
-                    task.contentType = upstream.headers["content-type"] || "application/octet-stream";
-                    for await (const chunk of upstream) {
-                        if (tasks.get(id) !== task) return;
-                        reserve(task, chunk.length);
-                        task.chunks.push(chunk);
+                    // Running tasks have no local deadline; POST is sent exactly once.
+                    await collect(await request(target, "POST", headers, body));
+                    if (protocol && task.status >= 200 && task.status < 300) {
+                        const result = await resolveVideoTask(protocol, JSON.parse(Buffer.concat(task.chunks).toString("utf8")), target, headers, task, read);
+                        // Upstream generation is finished; unclaimed-result retention now starts.
+                        task.finishedAt = Date.now();
+                        if (result.data) {
+                            bytes -= task.bytes - OVERHEAD;
+                            task.bytes = OVERHEAD;
+                            task.chunks = [];
+                            const video = Buffer.from(result.data, "base64");
+                            reserve(task, video.length);
+                            task.chunks = [video];
+                            task.status = 200;
+                            task.contentType = result.mime;
+                        } else {
+                            let url = new URL(result.url);
+                            let downloadHeaders = result.headers;
+                            const visited = new Set();
+                            for (;;) {
+                                if (visited.has(url.href)) throw new Error("视频下载出现循环重定向；原任务已生成，未重新生成。");
+                                visited.add(url.href);
+                                let download;
+                                try { download = await request(url, "GET", downloadHeaders); }
+                                catch (error) {
+                                    if (task.controller.signal.aborted) throw error;
+                                    task.warning = "视频已生成，下载连接异常，后台继续领取原结果，未重新生成。";
+                                    visited.clear();
+                                    await pause(10000, undefined, { signal: task.controller.signal });
+                                    continue;
+                                }
+                                if (download.statusCode === 409 || download.statusCode === 429 || download.statusCode >= 500) {
+                                    const retry = download.headers["retry-after"];
+                                    const wait = retry ? (/^\d+$/.test(retry) ? Number(retry) * 1000 : Date.parse(retry) - Date.now()) : 10000;
+                                    download.resume();
+                                    visited.clear();
+                                    task.warning = "视频已生成，后台继续等待原文件可领取，未重新生成。";
+                                    await pause(Math.max(10000, wait || 10000), undefined, { signal: task.controller.signal });
+                                    continue;
+                                }
+                                if ([301, 302, 303, 307, 308].includes(download.statusCode) && download.headers.location) {
+                                    const next = new URL(download.headers.location, url);
+                                    if (next.origin !== url.origin) downloadHeaders = {};
+                                    url = next;
+                                    download.resume();
+                                    continue;
+                                }
+                                await collect(download);
+                                break;
+                            }
+                            if (task.status < 200 || task.status >= 300 || /json|text\/html/i.test(task.contentType) || task.bytes === OVERHEAD) throw new Error("API 已生成，但视频下载失败；未重新生成，请核对上游结果。");
+                            if (task.contentType === "application/octet-stream") task.contentType = result.mime || "video/mp4";
+                        }
                     }
                     task.state = "completed";
-                } catch (error) { fail(task, error); }
+                    task.finishedAt ||= Date.now();
+                    task.warning = undefined;
+                } catch (error) { fail(task, new Error(`${error.message}（后台通信或处理失败不等于上游生成失败；未重新提交。）`)); }
             })();
             json(res, 202, { state: task.state });
             return;
@@ -107,7 +179,7 @@ export function createMemoryTasks() {
         if (!task) { json(res, 404, { error: "后台内存任务不存在或已过期／容器已重启。未重新生成；上游是否计费需另行核对。" }); return; }
         if (req.method === "DELETE" && !result) { release(task); json(res, 200, { released: true }); return; }
         if (req.method === "GET" && !result) {
-            json(res, 200, { state: task.state, error: task.error, createdAt: task.createdAt, expiresAt: task.createdAt + RETENTION });
+            json(res, 200, { state: task.state, error: task.error, warning: task.warning, upstreamId: task.upstreamId, createdAt: task.createdAt, expiresAt: task.finishedAt ? task.finishedAt + RETENTION : null });
             return;
         }
         if (req.method === "GET" && result && task.state === "completed") {

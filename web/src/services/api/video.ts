@@ -7,11 +7,13 @@ import { clampVideoSeconds, computeVideoSize, inferVideoRatio } from "@/lib/medi
 import { getMediaBlob, resolveMediaUrl, uploadMediaFile, type UploadedFile } from "@/services/file-storage";
 import { imageToDataUrl } from "@/services/image-storage";
 import { boolConfig, buildApiUrl, isVolcengineSeedance25, modelOptionName, resolveModelRequestConfig, resolveModelScript, withLocalProxy, type AiConfig } from "@/stores/use-config-store";
-import { getVolcengineSeedanceScript, runModelPlugin } from "./model-plugin";
+import { getPluginTemplates, getVolcengineSeedanceScript, runModelPlugin } from "./model-plugin";
 import { createMoyuSeedanceTask, isMoyuSeedance, pollMoyuSeedanceTask } from "./moyu-video";
+import { createXingSeedanceTask, isXingSeedance933 } from "./xing-video";
 import type { ReferenceImage } from "@/types/image";
 import type { ReferenceAudio, ReferenceVideo } from "@/types/media";
-import type { BackgroundContext } from "./background-tasks";
+import { backgroundPost, type BackgroundContext, type BackgroundKind } from "./background-tasks";
+import { useConfigStore } from "@/stores/use-config-store";
 
 type VideoResponse = { id: string; status?: string; error?: { message?: string }; url?: string; result_url?: string; video_url?: string; content?: { video_url?: string; url?: string } | null };
 type ApiVideoResponse = VideoResponse | { code?: number | string; data?: VideoResponse | null; msg?: string; message?: string; error?: { message?: string } };
@@ -50,16 +52,13 @@ export async function requestVideoGeneration(config: AiConfig, prompt: string, r
 }
 
 export async function waitForVideoGenerationTask(config: AiConfig, task: VideoGenerationTask, options?: RequestOptions): Promise<VideoGenerationResult> {
-    const maxAttempts = task.provider === "moyu" ? 480 : task.provider === "omni" ? 240 : 120;
-    for (let attempt = 0; attempt < maxAttempts; attempt += 1) {
+    for (;;) {
         if (options?.signal?.aborted) throw new DOMException("Aborted", "AbortError");
         const state = await pollVideoGenerationTask(config, task, options);
         if (state.status === "completed") return state.result;
         if (state.status === "failed") throw videoTaskFailed(state.error);
-        if (attempt === maxAttempts - 1) throw new Error(apiText("videoTimeout", { provider: "" }));
-        await delay(2500, options?.signal);
+        await delay(10000, options?.signal);
     }
-    throw new Error(apiText("videoTimeout", { provider: "" }));
 }
 
 export function isVideoTaskFailed(error: unknown) {
@@ -75,6 +74,11 @@ function videoTaskFailed(message: string) {
 export async function createVideoGenerationTask(config: AiConfig, prompt: string, references: ReferenceImage[] = [], options?: VideoMediaOptions): Promise<VideoGenerationTask> {
     const selectedModel = (config.model || config.videoModel).trim();
     const requestConfig = resolveModelRequestConfig(config, selectedModel);
+    if (isXingSeedance933(requestConfig)) {
+        assertVideoConfig(requestConfig, requestConfig.model);
+        const result = await createXingSeedanceTask(requestConfig, prompt, references, options);
+        return result instanceof Blob ? completedVideoTask(selectedModel, result) : { id: result, provider: "openai", model: selectedModel };
+    }
     // The bundled 2.5 script persists Ark's draft_task_id. Prefer it over a
     // saved legacy script so draft nodes can always offer formal generation.
     // Omni must use Interactions even when a legacy Veo template was saved on the model.
@@ -91,9 +95,12 @@ export async function createVideoGenerationTask(config: AiConfig, prompt: string
             mode: resolveVideoMode(requestConfig.videoMode, references.length),
             generateAudio: boolConfig(requestConfig.videoGenerateAudio, true),
         }, options);
-        return { id, provider: "moyu", model: selectedModel };
+        return id instanceof Blob ? completedVideoTask(selectedModel, id) : { id, provider: "moyu", model: selectedModel };
     }
     const script = isVolcengineSeedance25(requestConfig) ? getVolcengineSeedanceScript() : resolveModelScript(config, selectedModel);
+    const bundled = getPluginTemplates().video;
+    if (script === bundled[0]?.script) return createOpenAIVideoTask(requestConfig, selectedModel, prompt, references, options);
+    if (script === bundled[1]?.script) return createGeminiVideoTask(requestConfig, selectedModel, prompt, references, options);
     if (script) return createPluginVideoTask(requestConfig, selectedModel, script, prompt, references, options);
     assertVideoConfig(requestConfig, requestConfig.model);
     if (requestConfig.apiFormat === "gemini") return createGeminiVideoTask(requestConfig, selectedModel, prompt, references, options);
@@ -203,6 +210,8 @@ async function createOpenAIVideoTask(config: AiConfig, model: string, prompt: st
     videos.forEach((file) => body.append("video[]", file));
     audios.forEach((file) => body.append("audio[]", file));
     try {
+        const cached = await backgroundVideo(model, aiApiUrl(config, "/videos"), body, aiHeaders(config), options, "openai-video");
+        if (cached) return cached;
         const created = unwrapVideoResponse((await axios.post<ApiVideoResponse>(aiApiUrl(config, "/videos"), body, { headers: aiHeaders(config), signal: options?.signal })).data);
         if (!created.id) throw new Error(apiText("noVideoTaskId"));
         return { id: created.id, provider: "openai", model };
@@ -211,17 +220,30 @@ async function createOpenAIVideoTask(config: AiConfig, model: string, prompt: st
     }
 }
 
+async function completedVideoTask(model: string, blob: Blob): Promise<VideoGenerationTask> {
+    await assertVideoBlob(blob);
+    const id = nanoid();
+    pluginVideoResults.set(id, { blob });
+    return { id, provider: "plugin", model };
+}
+
+async function backgroundVideo(model: string, url: string, body: unknown, headers: Record<string, string>, options: RequestOptions | undefined, kind: BackgroundKind) {
+    if (!options?.background || !useConfigStore.getState().config.proxyEnabled) return undefined;
+    const response = await backgroundPost<Blob>(url, body, { headers, responseType: "blob", signal: options.signal }, options.background, kind);
+    return completedVideoTask(model, response.data);
+}
+
 async function pollOpenAIVideoTask(config: AiConfig, task: VideoGenerationTask, options?: RequestOptions): Promise<VideoGenerationTaskState> {
     try {
         const video = unwrapVideoResponse((await axios.get<ApiVideoResponse>(aiApiUrl(config, `/videos/${task.id}`), { headers: aiHeaders(config), signal: options?.signal })).data);
         const url = videoResultUrl(video);
         if (url) return { status: "completed", result: await videoResultFromUrl(url, options) };
-        if (video.status === "completed") {
+        if (video.status === "completed" && !isXingSeedance933(config)) {
             const content = await axios.get<Blob>(aiApiUrl(config, `/videos/${task.id}/content`), { headers: aiHeaders(config), responseType: "blob", signal: options?.signal });
             await assertVideoBlob(content.data);
             return { status: "completed", result: { blob: content.data } };
         }
-        if (video.status === "failed" || video.status === "cancelled") return { status: "failed", error: readApiErrorMessage(video.error?.message) || apiText("videoGenerationFailed") };
+        if (["failed", "cancelled", "canceled", "error", "expired"].includes(video.status || "")) return { status: "failed", error: readApiErrorMessage(video.error?.message) || apiText("videoGenerationFailed") };
         return { status: "pending" };
     } catch (error) {
         throw new Error(readAxiosError(error, apiText("videoTaskQueryFailed")));
@@ -271,7 +293,7 @@ async function omniResult(output: NonNullable<ReturnType<typeof omniVideoOutput>
     if (uri.hostname !== "generativelanguage.googleapis.com" || !fileId) throw new Error("Omni 返回了无法识别的 Google Files URI。");
     const base = geminiVideoBaseUrl(config);
     const headers = geminiVideoHeaders(config);
-    for (let attempt = 0; attempt < 120; attempt++) {
+    for (;;) {
         if (options?.signal?.aborted) throw new DOMException("Aborted", "AbortError");
         const file = (await axios.get<{ state?: string }>(withLocalProxy(`${base}/files/${fileId}`), { headers, signal: options?.signal })).data;
         const state = String(file.state || "").toUpperCase();
@@ -282,9 +304,8 @@ async function omniResult(output: NonNullable<ReturnType<typeof omniVideoOutput>
             if (!response.data.size || response.data.type.includes("json")) throw new Error("Omni 文件下载没有返回可播放的视频。");
             return { blob: response.data.type ? response.data : new Blob([response.data], { type: output.mime_type || "video/mp4" }) };
         }
-        await delay(5000, options?.signal);
+        await delay(10000, options?.signal);
     }
-    throw new Error("Omni 文件处理超时，尚未达到 ACTIVE 状态；不会自动重新生成。");
 }
 async function createOmniVideoTask(config: AiConfig, model: string, prompt: string, references: ReferenceImage[], options?: VideoMediaOptions): Promise<VideoGenerationTask> {
     if (options?.audios?.length) throw new Error("Gemini Omni does not support uploaded audio references.");
@@ -312,7 +333,7 @@ async function createOmniVideoTask(config: AiConfig, model: string, prompt: stri
     const seconds = Math.max(3, Math.min(10, Number(config.videoSeconds) || 6));
     const ratio = videoAspectRatio(config.size);
     try {
-        const interaction = (await axios.post<OmniInteraction>(omniVideoUrl(config), {
+        const body = {
             model: modelOptionName(model).replace(/^models\//, ""),
             input,
             response_format: { type: "video", aspect_ratio: ratio === "9:16" ? ratio : "16:9",
@@ -324,7 +345,10 @@ async function createOmniVideoTask(config: AiConfig, model: string, prompt: stri
             // URI video delivery requires storage even for a synchronous interaction.
             store: true,
             stream: false,
-        }, { headers: geminiVideoHeaders(config), signal: options?.signal })).data;
+        };
+        const cached = await backgroundVideo(model, omniVideoUrl(config), body, geminiVideoHeaders(config), options, "omni-video");
+        if (cached) return cached;
+        const interaction = (await axios.post<OmniInteraction>(omniVideoUrl(config), body, { headers: geminiVideoHeaders(config), signal: options?.signal })).data;
         if (interaction.error) throw new Error(interaction.error.message || "Omni generation failed");
         const output = omniVideoOutput(interaction);
         if (output) {
@@ -367,7 +391,7 @@ async function createGeminiVideoTask(config: AiConfig, model: string, prompt: st
     if (videos[0]) instance.video = await fileToGeminiInline(videos[0]);
     if (audios[0]) instance.audio = await fileToGeminiInline(audios[0]);
     try {
-        const created = unwrapEnvelope((await axios.post<ApiEnvelope<GeminiVideoOperation>>(geminiVideoUrl(config, model, "predictLongRunning"), {
+        const body = {
             instances: [instance],
             parameters: {
                 aspectRatio: videoAspectRatio(config.size),
@@ -376,7 +400,10 @@ async function createGeminiVideoTask(config: AiConfig, model: string, prompt: st
                 generateAudio: boolConfig(config.videoGenerateAudio, true),
                 addWatermark: boolConfig(config.videoWatermark, false),
             },
-        }, { headers: geminiVideoHeaders(config), signal: options?.signal })).data, apiText("noVideoTask"));
+        };
+        const cached = await backgroundVideo(model, geminiVideoUrl(config, model, "predictLongRunning"), body, geminiVideoHeaders(config), options, "gemini-video");
+        if (cached) return cached;
+        const created = unwrapEnvelope((await axios.post<ApiEnvelope<GeminiVideoOperation>>(geminiVideoUrl(config, model, "predictLongRunning"), body, { headers: geminiVideoHeaders(config), signal: options?.signal })).data, apiText("noVideoTask"));
         if (!created.name) throw new Error(apiText("noVideoTaskId"));
         return { id: created.name, provider: "gemini", model };
     } catch (error) {
@@ -477,6 +504,7 @@ function normalizeVideoResolution(value: string) {
 }
 
 function unwrapVideoResponse(payload: ApiVideoResponse) {
+    if (payload && "data" in payload && payload.data && !("code" in payload)) return payload.data;
     return unwrapEnvelope(payload, apiText("noVideoTask"));
 }
 
@@ -540,7 +568,8 @@ function statusMessage(status: number | undefined, fallback: string) {
     return status ? `${fallback}（${status}）` : fallback;
 }
 
-async function assertVideoBlob(blob: Blob) {
+export async function assertVideoBlob(blob: Blob) {
+    if (!blob.size || /text\/html/i.test(blob.type)) throw new Error("视频结果为空或返回 HTML 错误页，未重新生成。");
     if (!blob.type.includes("json")) return;
     let payload: { code?: number; msg?: string; error?: { message?: string } };
     try {
