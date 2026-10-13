@@ -34,7 +34,7 @@ jobs:
         working-directory: web
         run: |
           bun install
-          bun test tests/canvas-focus-viewport.test.ts tests/model-selection.test.ts
+          bun test tests/canvas-focus-viewport.test.ts tests/model-selection.test.ts tests/video-result-blob.test.ts
       - uses: docker/setup-buildx-action@v3
       - uses: docker/build-push-action@v6
         with:

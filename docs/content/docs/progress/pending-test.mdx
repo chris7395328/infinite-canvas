@@ -5,6 +5,8 @@ description: Implemented changes that still need manual verification
 
 # Pending Tests
 
+- Octet-stream video recovery: recognize binary/octet-stream and application/octet-stream from existing RAM results using file-type signatures, preserve bytes and assign the detected video MIME before browser storage. Reject empty/JSON/HTML/unknown binaries without ACK or generation replay. App-only update can recover old proxy results; proxy MIME alias fix is for later deployment after collection. File signature detection does not guarantee full video integrity/playability. CI regression fixtures added; no local tests/build or paid calls.
+
 - Custom single-step video recovery: with 933/Prompt Hubs/SD scripts that delegate polling to RAM video protocols, refresh or Query original task must GET the existing receipt and store the final video without executing user JS, uploading or POSTing again. Test already-created receipts, running/completed/failed/missing jobs, IndexedDB failure retaining RAM, and save-before-ACK. Reject multi-step or non-video responses without ACK/replay. App-only update; keep proxy running to retain RAM. No local tests/build or paid calls; deployed recovery remains pending.
 
 - Private-asset-only proxy endpoint: verify local media → configured COS → Ark CreateAsset/GetAsset → asset:// ID, and HTTP/HTTPS source ingestion without COS upload. Prompt Hubs script uses selected model ID, asset references, 12-reference total, 4–15 seconds or -1 and adaptive ratio. Failed ingestion must not submit a video or fall back to URL generation. Update proxy before use; external asset permissions, moderation and paid generation remain unverified. No local build/tests or paid requests run.

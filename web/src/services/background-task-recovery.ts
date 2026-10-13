@@ -8,6 +8,7 @@ import { parseBackgroundText, parseGeminiImagePayload, parseImagePayload } from 
 import { uploadImage } from "./image-storage";
 import { audioMetadata, imageMetadata, videoMetadata } from "@/lib/canvas/canvas-node-factory";
 import type { CanvasNodeData, CanvasNodeImage, CanvasNodeText } from "@/types/canvas";
+import { normalizeVideoResultBlob } from "@/lib/video-result-blob";
 
 // Merge only this task's slot: parallel image/text tasks must not overwrite each other.
 export function applyBackgroundResult(node: CanvasNodeData, task: BackgroundTask, saved: CanvasNodeData): CanvasNodeData {
@@ -40,8 +41,7 @@ export async function recoverBackgroundResult(task: BackgroundTask, node: Canvas
             const receipts = (await backgroundTasks(task.projectId)).filter((entry) => entry.nodeId === task.nodeId && entry.itemId === task.itemId);
             if (task.kind !== "plugin-video" || plugin.capability !== "video" || receipts.length !== 1) throw new Error("此脚本需专用结果解析（非单步视频任务）；后台结果仍保留，未运行脚本或重新生成。");
             const response = await waitBackgroundTask(task, signal);
-            if (!/^video\//i.test(response.headers.get("content-type") || "")) throw new Error("后台原始响应尚不是可直接领取的视频文件，可能仅包含任务ID；需适配原任务查询，未运行脚本或重新生成。");
-            pluginResult = await response.blob();
+            pluginResult = await normalizeVideoResultBlob(await response.blob());
         } else {
             const config = useConfigStore.getState().config;
             pluginResult = await runModelPlugin({ ...plugin, config: resolveModelRequestConfig(config, task.snapshot.metadata?.model || config.model), signal, background: { projectId: task.projectId, nodeId: task.nodeId, itemId: task.itemId, snapshot: () => node, replay: true } });

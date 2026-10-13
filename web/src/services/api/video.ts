@@ -13,6 +13,7 @@ import type { ReferenceImage } from "@/types/image";
 import type { ReferenceAudio, ReferenceVideo } from "@/types/media";
 import { backgroundPost, type BackgroundContext, type BackgroundKind } from "./background-tasks";
 import { useConfigStore } from "@/stores/use-config-store";
+import { normalizeVideoResultBlob } from "@/lib/video-result-blob";
 
 type VideoResponse = { id: string; status?: string; error?: { message?: string }; url?: string; result_url?: string; video_url?: string; content?: { video_url?: string; url?: string } | null };
 type ApiVideoResponse = VideoResponse | { code?: number | string; data?: VideoResponse | null; msg?: string; message?: string; error?: { message?: string } };
@@ -153,7 +154,7 @@ function videoMimeType(url: string) {
 }
 
 export async function storeGeneratedVideo(result: VideoGenerationResult): Promise<UploadedFile> {
-    if (result.blob) return uploadMediaFile(result.blob, "video");
+    if (result.blob) return uploadMediaFile(await normalizeVideoResultBlob(result.blob), "video");
     if (result.url) {
         try {
             const response = await fetch(withLocalProxy(result.url));

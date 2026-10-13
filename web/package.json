@@ -27,6 +27,7 @@
         "dayjs": "^1.11.20",
         "fflate": "^0.8.3",
         "file-saver": "^2.0.5",
+        "file-type": "22.1.1",
         "i18next": "^26.3.6",
         "localforage": "^1.10.0",
         "lucide-react": "^1.16.0",

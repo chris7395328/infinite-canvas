@@ -165,7 +165,7 @@ export function createMemoryTasks() {
                                 break;
                             }
                             if (task.status < 200 || task.status >= 300 || /json|text\/html/i.test(task.contentType) || task.bytes === OVERHEAD) throw new Error("API 已生成，但视频下载失败；未重新生成，请核对上游结果。");
-                            if (task.contentType === "application/octet-stream") task.contentType = result.mime || "video/mp4";
+                            if (/^(application|binary)\/octet-stream(?:\s*;|$)/i.test(task.contentType)) task.contentType = result.mime || "video/mp4";
                         }
                     }
                     task.state = "completed";
