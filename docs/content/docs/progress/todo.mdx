@@ -13,7 +13,7 @@ description: Planned follow-up work
 
 - Native video RAM polling and explicit JSON script profiles moved to Pending Tests; arbitrary custom-script polling still requires explicit protocol adapters.
 
-- Adapt result extraction for arbitrary custom generation scripts without automatically re-executing user code after refresh. RAM receipts currently support automatic restoration of native adapters and exact bundled templates only; modified scripts require explicit per-script parsing.
+- Single-step custom scripts with a final video MIME response now recover directly from RAM receipts (Pending Tests). Multi-step custom scripts and raw JSON/task-ID responses still require explicit result adapters; never re-execute arbitrary user code after refresh.
 
 - Replace the Claude Code CLI adapter with a Claude Agent SDK adapter and improve the tool queue, following the [Local Agent Integration Plan](/docs/progress/local-agent-integration-plan).
 - Add Skill installation from web search, Skill resource-file management, and controlled local-memory persistence.

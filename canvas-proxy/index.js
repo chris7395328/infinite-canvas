@@ -328,6 +328,19 @@ async function handleSeedanceCosUpload(req, res) {
     }
 }
 
+async function handleSeedancePrivateAsset(req, res) {
+    try {
+        const input = JSON.parse((await readBody(req)).toString("utf8"));
+        if (!["image", "video", "audio"].includes(input.kind)) throw new Error("不支持的素材类型");
+        const source = required(input.source, "参考素材");
+        if (!source.startsWith("data:") && !/^https?:\/\//i.test(source)) throw new Error("素材须为本地data URL或HTTP/HTTPS直链");
+        const url = await preparePrivateAsset(source, input.kind, input.seedance || {});
+        sendJson(res, 200, { url });
+    } catch (error) {
+        sendJson(res, 400, { error: error instanceof Error ? error.message : String(error) });
+    }
+}
+
 async function handleSeedanceVideo(req, res) {
     try {
         const input = JSON.parse((await readBody(req)).toString("utf8"));
@@ -364,6 +377,10 @@ export function createProxyServer() {
         }
         if (req.method === "POST" && req.url === "/seedance/cos-upload") {
             void handleSeedanceCosUpload(req, res);
+            return;
+        }
+        if (req.method === "POST" && req.url === "/seedance/private-asset") {
+            void handleSeedancePrivateAsset(req, res);
             return;
         }
         if ((req.url || "").startsWith("/_tasks/")) {

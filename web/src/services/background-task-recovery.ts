@@ -1,4 +1,4 @@
-import { acknowledgeBackgroundTask, waitBackgroundTask, type BackgroundTask } from "./api/background-tasks";
+import { acknowledgeBackgroundTask, backgroundTasks, waitBackgroundTask, type BackgroundTask } from "./api/background-tasks";
 import { parseGeminiAudioResponse } from "./api/gemini-audio";
 import { assertAudioBlob, audioPluginBlob, storeGeneratedAudio } from "./api/audio";
 import { assertVideoBlob, storeGeneratedVideo, videoPluginResult } from "./api/video";
@@ -34,9 +34,18 @@ export async function recoverBackgroundResult(task: BackgroundTask, node: Canvas
     if (task.plugin) {
         const plugin = task.plugin;
         const known = plugin.script === getVolcengineSeedanceScript() || getPluginTemplates()[plugin.capability].some((template) => template.script === plugin.script);
-        if (!known) throw new Error("自定义脚本的原始响应已暂存，但不能安全地自动重跑任意脚本。需针对该脚本适配结果解析；未重新生成。");
-        const config = useConfigStore.getState().config;
-        pluginResult = await runModelPlugin({ ...plugin, config: resolveModelRequestConfig(config, task.snapshot.metadata?.model || config.model), signal, background: { projectId: task.projectId, nodeId: task.nodeId, itemId: task.itemId, snapshot: () => node, replay: true } });
+        if (!known) {
+            // Explicit video-protocol scripts leave the final downloaded video in RAM.
+            // Read that receipt only: never replay uploads, user JS or generation POSTs.
+            const receipts = (await backgroundTasks(task.projectId)).filter((entry) => entry.nodeId === task.nodeId && entry.itemId === task.itemId);
+            if (task.kind !== "plugin-video" || plugin.capability !== "video" || receipts.length !== 1) throw new Error("此脚本需专用结果解析（非单步视频任务）；后台结果仍保留，未运行脚本或重新生成。");
+            const response = await waitBackgroundTask(task, signal);
+            if (!/^video\//i.test(response.headers.get("content-type") || "")) throw new Error("后台原始响应尚不是可直接领取的视频文件，可能仅包含任务ID；需适配原任务查询，未运行脚本或重新生成。");
+            pluginResult = await response.blob();
+        } else {
+            const config = useConfigStore.getState().config;
+            pluginResult = await runModelPlugin({ ...plugin, config: resolveModelRequestConfig(config, task.snapshot.metadata?.model || config.model), signal, background: { projectId: task.projectId, nodeId: task.nodeId, itemId: task.itemId, snapshot: () => node, replay: true } });
+        }
     }
     const response = task.plugin ? undefined : await waitBackgroundTask(task, signal);
     let saved: CanvasNodeData;
