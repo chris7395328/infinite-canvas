@@ -5,6 +5,8 @@ description: Planned follow-up work
 
 # TODO
 
+- Persistent completed results, fixed 24h retention and ACK-without-delete moved to Pending Tests. Future in-flight restart recovery must re-query a known upstream ID with browser-supplied credentials, never store API keys or reissue a generation POST; synchronous calls without IDs remain uncertain.
+
 - Selective v0.20.0 canvas/model-safety/resolution changes moved to Pending Tests; retain fork-specific official parameters, script precedence and RAM tasks rather than replacing the fork wholesale.
 
 - Generic model routing: exact online-selected IDs and user-script precedence; third-party defaults follow the selected channel protocol, not host/alias dispatch. Preserve configured 933 scripts. Verify aliases/case, channel isolation, script precedence, official drafts/Omni and failed-node copies. No local build/tests or paid calls; real generation acceptance pending.

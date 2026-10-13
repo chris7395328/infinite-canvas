@@ -101,7 +101,7 @@ export async function backgroundPost<T>(url: string, body: unknown, options: Axi
 export async function acknowledgeBackgroundTask(task: BackgroundTask, saved: CanvasNodeData) {
     return serializeTask(task.id, async () => {
         if (discarded.has(task.id)) return;
-        // Media and a durable browser receipt must exist before releasing server RAM.
+        // ACK only after browser persistence. Server results retain their fixed 24h TTL.
         await journal.setItem(task.id, { ...task, saved });
         const response = await fetch(address(task), { method: "DELETE", headers: taskHeaders(task) });
         if (!response.ok && response.status !== 404) await checked(response);

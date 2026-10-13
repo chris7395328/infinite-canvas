@@ -5,6 +5,7 @@ node_modules/
 !.env.example
 infinite-canvas-config.json
 data/
+task-data/
 *.log
 *.tsbuildinfo
 .DS_Store

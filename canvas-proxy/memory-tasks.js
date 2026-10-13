@@ -4,21 +4,30 @@ import { request as httpRequest } from "node:http";
 import { request as httpsRequest } from "node:https";
 import { resolveVideoTask } from "./video-tasks.js";
 import { setTimeout as pause } from "node:timers/promises";
+import { createTaskStorage } from "./task-storage.js";
 
-// Payload budget, not total Node RSS. No task data is written to disk.
-const BUDGET = 256 * 1024 * 1024;
+// Docker streams responses into its mapped directory; no application-level size cap.
 const RETENTION = 24 * 60 * 60 * 1000;
 const OVERHEAD = 1024;
 const digest = (value) => createHash("sha256").update(value).digest("hex");
 
 export function createMemoryTasks() {
     const tasks = new Map();
+    const storage = process.env.CANVAS_TASK_DIR ? createTaskStorage(process.env.CANVAS_TASK_DIR) : null;
+    const ready = storage ? storage.load().then(items => {
+        for (const item of items) tasks.set(item.id, { ...item, bytes: OVERHEAD, chunks: [], durable: item.state === "completed", controller: new AbortController() });
+    }) : Promise.resolve();
     let bytes = 0;
     const json = (res, code, body) => {
         res.writeHead(code, { "content-type": "application/json", "cache-control": "no-store" });
         res.end(JSON.stringify(body));
     };
-    const release = (task) => {
+    const release = async (task) => {
+        if (task.deleting) return;
+        task.deleting = true;
+        task.controller.abort();
+        try { if (storage) await storage.remove(task.id); }
+        catch (error) { task.deleting = false; throw error; }
         bytes -= task.bytes;
         task.bytes = 0;
         task.chunks = [];
@@ -27,12 +36,11 @@ export function createMemoryTasks() {
     };
     const reserve = (task, size) => {
         if (tasks.get(task.id) !== task) throw new Error("后台任务已取消或过期，未继续提交生成。");
-        if (bytes + size > BUDGET) throw new Error("后台任务内存预算已满（256 MiB）。未自动重试；如已提交，上游可能计费。");
         task.bytes += size;
         bytes += size;
     };
     const fail = (task, error) => {
-        if (tasks.get(task.id) !== task) return;
+        if (tasks.get(task.id) !== task || task.deleting) return;
         bytes -= task.bytes - OVERHEAD;
         task.bytes = OVERHEAD;
         task.chunks = [];
@@ -40,14 +48,16 @@ export function createMemoryTasks() {
         task.finishedAt = Date.now();
         task.error = error instanceof Error ? error.message : String(error);
         task.controller.abort();
+        if (storage) void storage.save(task).catch(() => { task.warning = "任务状态写入磁盘失败，请检查映射目录权限和剩余空间。"; });
     };
     const sweep = () => {
-        for (const task of tasks.values()) if (task.finishedAt && Date.now() - task.finishedAt >= RETENTION) release(task);
+        for (const task of tasks.values()) if (task.finishedAt && Date.now() - task.finishedAt >= RETENTION) void release(task).catch(() => { task.warning = "过期文件清理失败，请检查映射目录权限。"; });
     };
     const timer = setInterval(sweep, 60_000);
     timer.unref();
 
     return async function handle(req, res) {
+        await ready;
         const match = (req.url || "").match(/^\/_tasks\/([a-f0-9-]{36})(\/result)?$/);
         if (!match) { json(res, 404, { error: "未知后台任务地址" }); return; }
         sweep();
@@ -66,10 +76,11 @@ export function createMemoryTasks() {
             } catch { json(res, 400, { error: "无效的上游地址" }); return; }
             const protocol = req.headers["x-canvas-video-protocol"];
             if (protocol && !["openai", "gemini", "omni", "moyu", "json-video", "xing933"].includes(protocol)) { req.resume(); json(res, 400, { error: "未知视频任务协议，未提交生成。" }); return; }
-            if (bytes + OVERHEAD > BUDGET) { req.resume(); json(res, 507, { error: "后台任务内存预算已满（256 MiB），未提交生成。" }); return; }
             task = { id, key: digest(token), state: "uploading", createdAt: Date.now(), bytes: 0, chunks: [], controller: new AbortController() };
             tasks.set(id, task);
             reserve(task, OVERHEAD);
+            try { if (storage) await storage.save(task); }
+            catch { tasks.delete(id); bytes -= task.bytes; req.resume(); json(res, 507, { error: "任务凭据无法写入映射目录，尚未提交上游；请检查权限或磁盘空间。" }); return; }
             try {
                 for await (const chunk of req) { reserve(task, chunk.length); task.chunks.push(chunk); }
             } catch (error) { fail(task, error); json(res, 507, { error: task.error || "后台任务已取消或过期，未继续提交生成。" }); return; }
@@ -81,6 +92,8 @@ export function createMemoryTasks() {
             }
             const body = Readable.from(task.chunks);
             task.state = "running";
+            try { if (storage) await storage.save(task); }
+            catch { fail(task, new Error("无法持久化提交状态，尚未请求上游。")); json(res, 507, { error: task.error }); return; }
             const request = (url, method, requestHeaders, source) => new Promise((resolve, reject) => {
                 const parsed = new URL(url);
                 if (!["http:", "https:"].includes(parsed.protocol) || parsed.username || parsed.password) { reject(new Error("无效的结果地址")); return; }
@@ -96,19 +109,21 @@ export function createMemoryTasks() {
                 task.chunks = [];
                 task.status = upstream.statusCode || 502;
                 task.contentType = upstream.headers["content-type"] || "application/octet-stream";
+                if (storage) { task.payloadSize = await storage.collect(task, upstream); return; }
                 for await (const chunk of upstream) {
                     task.controller.signal.throwIfAborted();
                     reserve(task, chunk.length);
                     task.chunks.push(chunk);
                 }
             };
+            const payload = () => storage ? storage.read(task) : Promise.resolve(Buffer.concat(task.chunks));
             const read = async (url, requestHeaders) => {
                 const upstream = await request(url, "GET", requestHeaders);
                 const retry = upstream.headers["retry-after"];
                 task.retryAfter = retry ? Math.max(10000, /^\d+(\.\d+)?$/.test(retry) ? Number(retry) * 1000 : Date.parse(retry) - Date.now()) : 10000;
                 await collect(upstream);
                 if (task.status < 200 || task.status >= 300) throw new Error(`原任务查询返回 HTTP ${task.status}`);
-                return JSON.parse(Buffer.concat(task.chunks).toString("utf8"));
+                return JSON.parse((await payload()).toString("utf8"));
             };
             // This work deliberately outlives the browser connection. Never log credentials or bodies.
             void (async () => {
@@ -117,16 +132,18 @@ export function createMemoryTasks() {
                     // Running tasks have no local deadline; POST is sent exactly once.
                     await collect(await request(target, "POST", headers, body));
                     if (protocol && task.status >= 200 && task.status < 300) {
-                        const result = await resolveVideoTask(protocol, JSON.parse(Buffer.concat(task.chunks).toString("utf8")), target, headers, task, read);
-                        // Upstream generation is finished; unclaimed-result retention now starts.
-                        task.finishedAt = Date.now();
+                        const initial = JSON.parse((await payload()).toString("utf8"));
+                        task.upstreamId = initial?.id || initial?.task_id || initial?.data?.id || initial?.data?.task_id || initial?.name;
+                        if (storage) await storage.save(task);
+                        const result = await resolveVideoTask(protocol, initial, target, headers, task, read);
                         if (result.data) {
                             bytes -= task.bytes - OVERHEAD;
                             task.bytes = OVERHEAD;
                             task.chunks = [];
                             const video = Buffer.from(result.data, "base64");
                             reserve(task, video.length);
-                            task.chunks = [video];
+                            if (storage) task.payloadSize = await storage.collect(task, Readable.from([video]));
+                            else task.chunks = [video];
                             task.status = 200;
                             task.contentType = result.mime;
                         } else {
@@ -161,13 +178,24 @@ export function createMemoryTasks() {
                                     download.resume();
                                     continue;
                                 }
-                                await collect(download);
+                                try { await collect(download); }
+                                catch (error) {
+                                    if (task.controller.signal.aborted || ["ENOSPC", "EACCES", "EROFS", "EDQUOT"].includes(error.code)) throw error;
+                                    task.warning = "视频下载中断，后台继续下载原结果，未重新生成。";
+                                    visited.clear();
+                                    await pause(10000, undefined, { signal: task.controller.signal });
+                                    continue;
+                                }
                                 break;
                             }
-                            if (task.status < 200 || task.status >= 300 || /json|text\/html/i.test(task.contentType) || task.bytes === OVERHEAD) throw new Error("API 已生成，但视频下载失败；未重新生成，请核对上游结果。");
+                            if (task.status < 200 || task.status >= 300 || /json|text\/html/i.test(task.contentType) || !(storage ? task.payloadSize : task.bytes - OVERHEAD)) throw new Error("API 已生成，但视频下载失败；未重新生成，请核对上游结果。");
                             if (/^(application|binary)\/octet-stream(?:\s*;|$)/i.test(task.contentType)) task.contentType = result.mime || "video/mp4";
                         }
                     }
+                    if (task.status < 200 || task.status >= 300) throw new Error("上游请求返回HTTP " + task.status + "；不能视为已成功生成。");
+                    if (!(storage ? task.payloadSize : task.bytes - OVERHEAD)) throw new Error("上游返回空结果，不能视为已成功保存。");
+                    task.controller.signal.throwIfAborted();
+                    if (storage) { task.finishedAt = await storage.complete(task); task.durable = true; }
                     task.state = "completed";
                     task.finishedAt ||= Date.now();
                     task.warning = undefined;
@@ -176,15 +204,28 @@ export function createMemoryTasks() {
             json(res, 202, { state: task.state });
             return;
         }
-        if (!task) { json(res, 404, { error: "后台内存任务不存在或已过期／容器已重启。未重新生成；上游是否计费需另行核对。" }); return; }
-        if (req.method === "DELETE" && !result) { release(task); json(res, 200, { released: true }); return; }
+        if (!task || task.finishedAt && Date.now() - task.finishedAt >= RETENTION) { json(res, 404, { error: "后台任务不存在或结果已超过24小时保留期。未重新生成；上游是否计费需另行核对。" }); return; }
+        if (req.method === "DELETE" && !result) {
+            // Browser ACK is not a deletion: all terminal results retain their original TTL.
+            if (task.state === "completed" || task.state === "failed") { json(res, 200, { retained: true, expiresAt: task.finishedAt + RETENTION }); return; }
+            fail(task, new Error("任务已主动取消；上游是否继续生成需核对平台记录，未重新提交。"));
+            json(res, 200, { cancelled: true }); return;
+        }
         if (req.method === "GET" && !result) {
-            json(res, 200, { state: task.state, error: task.error, warning: task.warning, upstreamId: task.upstreamId, createdAt: task.createdAt, expiresAt: task.finishedAt ? task.finishedAt + RETENTION : null });
+            json(res, 200, { state: task.state, storage: storage ? "disk" : "memory", error: task.error, warning: task.warning, upstreamId: task.upstreamId, createdAt: task.createdAt, expiresAt: task.finishedAt ? task.finishedAt + RETENTION : null });
             return;
         }
         if (req.method === "GET" && result && task.state === "completed") {
+            if (storage && task.durable) {
+                const file = await storage.result(task);
+                res.writeHead(task.status, { "content-type": task.contentType, "content-length": file.size, "cache-control": "no-store" });
+                const stream = file.stream();
+                stream.on("error", () => res.destroy());
+                res.on("close", () => stream.destroy());
+                stream.pipe(res); return;
+            }
             res.writeHead(task.status, { "content-type": task.contentType, "cache-control": "no-store" });
-            // A disconnected GET is not an ACK. Keep buffers until explicit acknowledgement.
+            // RAM-only local mode also retains results until the fixed expiry.
             Readable.from(task.chunks).pipe(res);
             return;
         }

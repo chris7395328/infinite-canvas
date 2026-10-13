@@ -12,6 +12,7 @@
     "index.js",
     "memory-tasks.js",
     "video-tasks.js",
+    "task-storage.js",
     "README.md"
   ],
   "scripts": {

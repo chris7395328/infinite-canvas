@@ -11,6 +11,7 @@ assert.match(config, /CANVAS_PROXY_PATH: "\/canvas-proxy"/);
 const identity = await (await fetch(`${base}/canvas-proxy/`)).json();
 assert.equal(identity.proxy, "@basketikun/canvas-proxy");
 assert.equal(identity.memoryTasks, 2);
+assert.equal(identity.taskStorage, "disk");
 
 // An isolated fixture verifies both proxy hops without calling providers or using credentials.
 const fixture = `let pending, pendingTask, taskCalls = 0, videoCalls = 0, videoPolls = 0;
@@ -114,7 +115,8 @@ async function verifyProxy() {
     assert.equal(recovered.privateHeader, "");
     assert.equal((await fetch(`${task}/result`, { headers: auth })).status, 200);
     assert.equal((await fetch(task, { method: "DELETE", headers: auth })).status, 200);
-    assert.equal((await fetch(task, { headers: auth })).status, 404);
+    assert.equal((await (await fetch(task, { headers: auth })).json()).state, "completed");
+    assert.equal((await fetch(`${task}/result`, { headers: auth })).status, 200);
     const videoTask = `${base}/canvas-proxy/_tasks/${randomUUID()}`;
     const videoAuth = { "x-canvas-task-key": randomUUID() };
     assert.equal((await fetch(videoTask, { method: "POST", headers: { ...videoAuth, "x-canvas-target-url": "http://proxy:24123/videos/generations", "x-canvas-video-protocol": "json-video", "content-type": "application/json", Authorization: "Bearer fixture-not-a-key" }, body: JSON.stringify({ model: "Online-Model-Arbitrary-Alias", prompt: "offline fixture", duration: 10, resolution: "720p", ratio: "16:9" }) })).status, 202);
@@ -132,6 +134,6 @@ async function verifyProxy() {
     assert.equal(videoResult.headers.get("content-type"), "video/mp4");
     assert.equal(await videoResult.text(), "fixture-video");
     assert.equal((await fetch(videoTask, { method: "DELETE", headers: videoAuth })).status, 200);
-    console.log("Compose smoke passed: frontend, proxy, signed URL, SSE and RAM task admission/recovery/idempotency/secret/ACK.");
+    console.log("Compose smoke passed: frontend, proxy, signed URL, SSE and persistent task admission/recovery/idempotency/secret/ACK-retention.");
 }
 await verifyProxy();

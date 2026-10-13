@@ -16,6 +16,10 @@ services:
     #   ANALYTICS_BAIDU_ID: xxxxxxxxxxxxxxxxxxxxxxxxxxxx   # 百度统计站点 ID
   proxy:
     image: ${DOCKER_IMAGE:?请在 .env 中设置你的完整 Docker Hub 镜像地址}
+    environment:
+      CANVAS_TASK_DIR: /var/lib/infinite-canvas/tasks
+    volumes:
+      - ./task-data:/var/lib/infinite-canvas/tasks
     entrypoint: ["node", "/opt/canvas-proxy/index.js"]
     command: ["--host", "0.0.0.0", "--port", "23210"]
     restart: unless-stopped
