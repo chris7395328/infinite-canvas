@@ -19,7 +19,6 @@ import { syncAppDataToWebdav, type AppSyncDomainKey, type AppSyncProgressEvent }
 import { testWebdavConnection, WEBDAV_MANIFEST_FILE_NAME } from "@/services/webdav-sync";
 import { audioFormatOptions, audioVoiceOptions, normalizeAudioSpeedValue } from "@/lib/audio-generation";
 import { createModelChannel, modelOptionsFromChannels, normalizeModelOptionValue, selectableModelsByCapability, useConfigStore, type AiConfig, type ApiCallFormat, type ConfigTabKey, type ModelCapability, type ModelChannel } from "@/stores/use-config-store";
-import { getVolcengineSeedanceScript } from "@/services/api/model-plugin";
 
 type ModelGroup = {
     capability: ModelCapability;
@@ -120,10 +119,10 @@ export function AppConfigPanel({ showDoneButton = false, initialTab = "channels"
     };
 
     const addSeedanceModels = () => {
-        const models = ["doubao-seedance-2-5-260628", "doubao-seedance-1-0-pro-250528", "doubao-seedance-1-0-lite-i2v-250428"].map((name) => ({ name, capability: "video" as const, script: getVolcengineSeedanceScript() }));
+        const models = ["doubao-seedance-2-5-260628", "doubao-seedance-1-0-pro-250528", "doubao-seedance-1-0-lite-i2v-250428"].map((name) => ({ name, capability: "video" as const }));
         const existing = config.channels.find((channel) => channel.name === "火山方舟 Seedance");
         const channel = existing
-            ? { ...existing, baseUrl: "https://ark.cn-beijing.volces.com/api/v3", apiFormat: "volcengine" as ApiCallFormat, models }
+            ? { ...existing, baseUrl: "https://ark.cn-beijing.volces.com/api/v3", apiFormat: "volcengine" as ApiCallFormat, models: [...existing.models, ...models.filter((model) => !existing.models.some((saved) => saved.name === model.name))] }
             : createModelChannel({ name: "火山方舟 Seedance", baseUrl: "https://ark.cn-beijing.volces.com/api/v3", apiFormat: "volcengine", models });
         updateChannels(existing ? config.channels.map((item) => (item.id === channel.id ? channel : item)) : [...config.channels, channel]);
         setEditingChannelId(channel.id);

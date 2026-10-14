@@ -101,6 +101,23 @@ function volcTimestamp(now) {
     return now.toISOString().replace(/[-:]/g, "").replace(/\.\d{3}/, "");
 }
 
+function seedanceApiBaseUrl(value) {
+    if (!value) return ARK_BASE_URL;
+    const url = new URL(value);
+    if (url.protocol !== "https:" || url.username || url.password || url.search || url.hash || !url.pathname.replace(/\/+$/, "").endsWith("/api/v3")) throw new Error("Seedance 渠道地址必须为 HTTPS 且以 /api/v3 结尾");
+    return url.href.replace(/\/+$/, "");
+}
+
+function volcAssetEndpoint(settings) {
+    const pixmax = /^https:\/\/openai\.pixmax\.ai\/ai-api\/volcengine\/api-key\/api\/v3\/?$/i.test(settings.apiBaseUrl || "");
+    const url = new URL(settings.assetApiUrl || (pixmax ? "https://openai.pixmax.ai/ai-api/volcengine/openapi/" : VOLC_OPEN_API));
+    if (url.protocol !== "https:" || url.username || url.password || url.search || url.hash) throw new Error("私域素材库 API 地址必须是无附加参数的 HTTPS 地址");
+    url.pathname = `${url.pathname.replace(/\/+$/, "")}/`;
+    const region = settings.assetRegion || (pixmax ? "ap-southeast-1" : "cn-beijing");
+    if (!/^[a-z0-9-]+$/.test(region)) throw new Error("私域素材库签名区域无效");
+    return { url, region };
+}
+
 async function callVolcAssetApi(action, body, settings) {
     const accessKeyId = required(settings.accessKeyId, "方舟 Access Key ID");
     const secretAccessKey = required(settings.secretAccessKey, "方舟 Secret Access Key");
@@ -109,16 +126,17 @@ async function callVolcAssetApi(action, body, settings) {
     const timestamp = volcTimestamp(now);
     const date = timestamp.slice(0, 8);
     const query = `Action=${encodeURIComponent(action)}&Version=2024-01-01`;
-    const host = "open.volcengineapi.com";
+    const { url, region } = volcAssetEndpoint(settings);
+    const host = url.host;
     const payloadHash = sha256(payload);
     const canonicalHeaders = `content-type:application/json\nhost:${host}\nx-date:${timestamp}\n`;
     const signedHeaders = "content-type;host;x-date";
-    const canonicalRequest = `POST\n/\n${query}\n${canonicalHeaders}\n${signedHeaders}\n${payloadHash}`;
-    const scope = `${date}/cn-beijing/ark/request`;
-    const signingKey = hmacSha256(hmacSha256(hmacSha256(hmacSha256(secretAccessKey, date), "cn-beijing"), "ark"), "request");
+    const canonicalRequest = `POST\n${url.pathname}\n${query}\n${canonicalHeaders}\n${signedHeaders}\n${payloadHash}`;
+    const scope = `${date}/${region}/ark/request`;
+    const signingKey = hmacSha256(hmacSha256(hmacSha256(hmacSha256(secretAccessKey, date), region), "ark"), "request");
     const stringToSign = `HMAC-SHA256\n${timestamp}\n${scope}\n${sha256(canonicalRequest)}`;
     const signature = hmacSha256(signingKey, stringToSign, "hex");
-    const response = await fetch(`${VOLC_OPEN_API}/?${query}`, {
+    const response = await fetch(`${url.href}?${query}`, {
         method: "POST",
         headers: {
             "content-type": "application/json",
@@ -140,7 +158,8 @@ function resultValue(result, name) {
 
 async function ensureAssetGroup(settings) {
     if (settings.assetGroupId?.trim()) return settings.assetGroupId.trim();
-    const cacheKey = `${settings.accessKeyId}:${settings.projectName}`;
+    const assetEndpoint = volcAssetEndpoint(settings);
+    const cacheKey = `${assetEndpoint.url.href}:${assetEndpoint.region}:${settings.accessKeyId}:${settings.projectName}`;
     if (assetGroups.has(cacheKey)) return assetGroups.get(cacheKey);
     const result = await callVolcAssetApi("CreateAssetGroup", {
         Name: "Infinite Canvas Seedance",
@@ -235,13 +254,13 @@ function seedanceContent(prompt, references, mode) {
 }
 
 async function generateSeedance(input) {
-    const settings = input.seedance || {};
+    const settings = { ...(input.seedance || {}), apiBaseUrl: seedanceApiBaseUrl(input.baseUrl || input.seedance?.apiBaseUrl) };
     const model = required(input.model, "Seedance 模型");
     const apiKey = required(input.apiKey, "方舟 API Key");
     const params = input.params || {};
     const draftTaskId = String(input.draftTaskId || "").trim();
-    const isV25 = /seedance-2-5/i.test(model);
-    const isV20 = /seedance-2-0/i.test(model);
+    const isV25 = settings.modelVersion ? settings.modelVersion === "2.5" : /seedance-2-5/i.test(model);
+    const isV20 = settings.modelVersion ? settings.modelVersion === "2.0" : /seedance-2-0/i.test(model);
     const isV20Fast = isV20 && /fast|mini/i.test(model);
     const allowedResolutions = isV20Fast ? ["480p", "720p"] : ["480p", "720p", "1080p"];
     const requestedResolution = String(params.resolution || "720p").toLowerCase();
@@ -281,9 +300,9 @@ async function generateSeedance(input) {
                   return_last_frame: settings.returnLastFrame === true,
               } : {}),
           };
-    const created = await fetch(`${ARK_BASE_URL}/contents/generations/tasks`, {
+    const created = await fetch(`${settings.apiBaseUrl}/contents/generations/tasks`, {
         method: "POST",
-        headers: { "content-type": "application/json", authorization: `Bearer ${apiKey}` },
+        headers: { "content-type": "application/json", authorization: `Bearer ${apiKey}`, ...(settings.apiBaseUrl.includes("openai.pixmax.ai/") ? { "Pixmax-Custom-Trace-Id": randomUUID() } : {}) },
         body: JSON.stringify(body),
     });
     const createdBody = await created.json().catch(() => ({}));
@@ -293,7 +312,7 @@ async function generateSeedance(input) {
     for (;;) {
         await new Promise((resolve) => setTimeout(resolve, 10000));
         let response;
-        try { response = await fetch(`${ARK_BASE_URL}/contents/generations/tasks/${encodeURIComponent(taskId)}`, { headers: { authorization: `Bearer ${apiKey}` } }); }
+        try { response = await fetch(`${settings.apiBaseUrl}/contents/generations/tasks/${encodeURIComponent(taskId)}`, { headers: { authorization: `Bearer ${apiKey}` } }); }
         catch { continue; } // Query the same paid task; never submit another POST.
         if (response.status >= 500 || response.status === 429) {
             const retry = response.headers.get("retry-after");

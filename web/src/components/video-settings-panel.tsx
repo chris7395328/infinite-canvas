@@ -6,7 +6,7 @@ import i18n from "@/i18n";
 import { ImageSettingsTheme } from "@/components/image-settings-panel";
 import { type CanvasTheme } from "@/lib/canvas-theme";
 import { clampVideoSeconds, computeVideoSize, inferVideoRatio, parseVideoResolution, readVideoDimensions, VIDEO_SECONDS_MAX, VIDEO_SECONDS_MIN, videoRatioOptions } from "@/lib/media-size";
-import { isVolcengineSeedance25, modelOptionName, resolveModelRequestConfig, type AiConfig } from "@/stores/use-config-store";
+import { isVolcengineSeedance25, modelOptionName, resolveModelRequestConfig, seedanceModelVersion, type AiConfig } from "@/stores/use-config-store";
 
 const resolutionOptions = [
     { value: "480", label: "480p" },
@@ -43,11 +43,12 @@ export function VideoSettingsPanel({ config, onConfigChange, theme, showTitle = 
     const isSeedance25 = isVolcengineSeedance25(config);
     const modelName = modelOptionName(config.model).replace(/^models\//, "").toLowerCase();
     const channel = resolveModelRequestConfig(config, config.model);
+    const seedance = channel.seedance;
     const isOfficialArk = channel.apiFormat === "volcengine" || /ark\.cn-beijing\.volces\.com\/api\/v3/i.test(channel.baseUrl);
-    const isSeedance20 = isOfficialArk && /doubao-seedance-2-0/.test(modelName);
+    const isSeedance20 = isOfficialArk && seedanceModelVersion(config, config.model) === "2.0";
     const isSeedance20Fast = isSeedance20 && /fast|mini/.test(modelName);
     const isOmni = channel.apiFormat === "gemini" && /^https:\/\/generativelanguage\.googleapis\.com(?:\/|$)/i.test(channel.baseUrl) && /^gemini-omni-/.test(modelName);
-    const isDraft = isSeedance25 && config.seedance.draft;
+    const isDraft = isSeedance25 && seedance.draft;
     const minSeconds = isOmni ? 3 : VIDEO_SECONDS_MIN;
     const maxSeconds = isOmni ? 10 : isSeedance20 ? 15 : VIDEO_SECONDS_MAX;
     const seconds = Math.round(Math.max(minSeconds, Math.min(maxSeconds, Number(config.videoSeconds) || 6)));
@@ -68,17 +69,17 @@ export function VideoSettingsPanel({ config, onConfigChange, theme, showTitle = 
         else applySize(nextResolution, selectedRatio);
     };
     useEffect(() => {
-        const smartEdit = isSeedance25 && config.seedance.taskType === "edit" && config.videoSeconds === "-1";
+        const smartEdit = isSeedance25 && seedance.taskType === "edit" && config.videoSeconds === "-1";
         if (!smartEdit && String(seconds) !== String(config.videoSeconds)) onConfigChange("videoSeconds", String(seconds));
         if (resolution !== requestedResolution) onConfigChange("vquality", resolution);
         // MOV is 2.5-only. Clear a persisted 2.5 choice when switching to Seedance 2.0.
-        if (isSeedance20 && config.seedance.outputFormat !== "mp4") onConfigChange("seedanceOutputFormat", "mp4");
-        const adaptive = isSeedance25 && ["extend", "edit"].includes(config.seedance.taskType);
+        if (isSeedance20 && seedance.outputFormat !== "mp4") onConfigChange("seedanceOutputFormat", "mp4");
+        const adaptive = isSeedance25 && ["extend", "edit"].includes(seedance.taskType);
         if (!isDraft && !adaptive && selectedRatio !== "auto" && (fixedDimensions || resolution !== requestedResolution)) {
             const nextSize = computeVideoSize(resolution, selectedRatio);
             if (config.size !== nextSize) onConfigChange("size", nextSize);
         }
-    }, [config.model, config.size, config.videoSeconds, config.vquality, config.seedance.taskType, seconds, isDraft, isSeedance25, fixedDimensions, resolution, requestedResolution, selectedRatio, onConfigChange]);
+    }, [config.model, config.size, config.videoSeconds, config.vquality, seedance.taskType, seedance.outputFormat, seconds, isDraft, isSeedance25, fixedDimensions, resolution, requestedResolution, selectedRatio, onConfigChange]);
 
     return (
         <ImageSettingsTheme theme={theme}>
@@ -90,7 +91,7 @@ export function VideoSettingsPanel({ config, onConfigChange, theme, showTitle = 
                             <div className="text-xs" style={{ color: theme.node.muted }}>任务类型</div>
                             <div className="grid grid-cols-4 gap-2">
                                 {(Object.keys(seedanceTaskTypeLabels) as Array<keyof typeof seedanceTaskTypeLabels>).map((taskType) => (
-                                    <OptionPill key={taskType} selected={config.seedance.taskType === taskType} theme={theme} onClick={() => { onConfigChange("seedanceTaskType", taskType); if (taskType === "extend" || taskType === "edit") onConfigChange("size", "auto"); if (taskType === "edit") onConfigChange("videoSeconds", "-1"); }}><span className="block whitespace-nowrap text-[11px] leading-none">{seedanceTaskTypeLabels[taskType]}</span></OptionPill>
+                                    <OptionPill key={taskType} selected={seedance.taskType === taskType} theme={theme} onClick={() => { onConfigChange("seedanceTaskType", taskType); if (taskType === "extend" || taskType === "edit") onConfigChange("size", "auto"); if (taskType === "edit") onConfigChange("videoSeconds", "-1"); }}><span className="block whitespace-nowrap text-[11px] leading-none">{seedanceTaskTypeLabels[taskType]}</span></OptionPill>
                                 ))}
                             </div>
                         </div>
@@ -101,20 +102,20 @@ export function VideoSettingsPanel({ config, onConfigChange, theme, showTitle = 
                         <div className="grid grid-cols-2 gap-2.5">
                             <label className="flex h-9 items-center justify-between rounded-full border px-3 text-sm" style={{ borderColor: theme.node.stroke }}>
                                 固定镜头
-                                <Switch size="small" checked={config.seedance.cameraFixed} onChange={(checked) => onConfigChange("seedanceCameraFixed", String(checked))} />
+                                <Switch size="small" checked={seedance.cameraFixed} onChange={(checked) => onConfigChange("seedanceCameraFixed", String(checked))} />
                             </label>
                             <label className="flex h-9 items-center justify-between rounded-full border px-3 text-sm" style={{ borderColor: theme.node.stroke }}>
                                 返回尾帧
-                                <Switch size="small" checked={config.seedance.returnLastFrame} onChange={(checked) => onConfigChange("seedanceReturnLastFrame", String(checked))} />
+                                <Switch size="small" checked={seedance.returnLastFrame} onChange={(checked) => onConfigChange("seedanceReturnLastFrame", String(checked))} />
                             </label>
                         </div>
                         <div className="grid grid-cols-[1fr_104px] items-center gap-2.5">
                             <div className="grid grid-cols-2 gap-2">
-                                {(["mp4", "mov"] as const).map((format) => <OptionPill key={format} selected={config.seedance.outputFormat === format} theme={theme} onClick={() => onConfigChange("seedanceOutputFormat", format)}>{format.toUpperCase()}</OptionPill>)}
+                                {(["mp4", "mov"] as const).map((format) => <OptionPill key={format} selected={seedance.outputFormat === format} theme={theme} onClick={() => onConfigChange("seedanceOutputFormat", format)}>{format.toUpperCase()}</OptionPill>)}
                             </div>
                             <label className="flex h-9 overflow-hidden rounded-full border text-sm" style={{ borderColor: theme.node.stroke }}>
                                 <span className="grid shrink-0 place-items-center px-2 text-xs" style={{ color: theme.node.muted }}>Seed</span>
-                                <input type="number" className="min-w-0 flex-1 bg-transparent pr-2 text-center outline-none [appearance:textfield] [&::-webkit-inner-spin-button]:appearance-none [&::-webkit-outer-spin-button]:appearance-none" value={config.seedance.seed} onChange={(event) => onConfigChange("seedanceSeed", event.target.value)} onMouseDown={(event) => event.stopPropagation()} />
+                                <input type="number" className="min-w-0 flex-1 bg-transparent pr-2 text-center outline-none [appearance:textfield] [&::-webkit-inner-spin-button]:appearance-none [&::-webkit-outer-spin-button]:appearance-none" value={seedance.seed} onChange={(event) => onConfigChange("seedanceSeed", event.target.value)} onMouseDown={(event) => event.stopPropagation()} />
                             </label>
                         </div>
                         {isDraft ? <div className="text-xs" style={{ color: theme.node.muted }}>草稿固定为 480p；生成成功后可在视频节点中发起正式生成。</div> : null}

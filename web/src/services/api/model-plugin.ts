@@ -166,7 +166,7 @@ export async function runModelPlugin<T = unknown>(args: RunPluginArgs): Promise<
             config.apiKey,
             config.systemPrompt || "",
             config.reasoningEffort,
-            { ...config.seedance, bridgeUrl: normalizeLocalProxyUrl(config.seedance.bridgeUrl) },
+            { ...config.seedance, bridgeUrl: normalizeLocalProxyUrl(config.seedance.bridgeUrl), apiBaseUrl: config.baseUrl },
             http,
             request,
             poll,

@@ -18,7 +18,7 @@ import { resolveImageUrl, ensureImagePreview, getImagePreviewRevision, previewUr
 import { createVideoGenerationTask, pollVideoGenerationTask, storeGeneratedVideo, type VideoGenerationTask } from "@/services/api/video";
 import { useAssetStore } from "@/stores/use-asset-store";
 import { useWorkbenchAgentStore } from "@/stores/use-workbench-agent-store";
-import { boolConfig, modelOptionLabel, useConfigStore, useEffectiveConfig, type AiConfig } from "@/stores/use-config-store";
+import { boolConfig, modelOptionLabel, resolveChannelSeedanceConfig, resolveModelChannel, useConfigStore, useEffectiveConfig, type AiConfig } from "@/stores/use-config-store";
 import { useThemeStore } from "@/stores/use-theme-store";
 import type { ReferenceImage } from "@/types/image";
 import i18n from "@/i18n";
@@ -512,6 +512,9 @@ export default function VideoPage() {
 function GenerationSettings({ config, model, updateConfig, openConfigDialog }: { config: AiConfig; model: string; updateConfig: UpdateAiConfig; openConfigDialog: (shouldPromptContinue?: boolean) => void }) {
     const theme = canvasThemes[useThemeStore((state) => state.theme)];
     const { t } = useTranslation();
+    const channel = resolveModelChannel(config, model);
+    const seedance = resolveChannelSeedanceConfig(config, channel);
+    const updateSeedance = (patch: Partial<AiConfig["seedance"]>) => updateConfig("channels", config.channels.map((item) => item.id === channel.id ? { ...item, seedance: { ...seedance, ...patch } } : item));
 
     return (
         <>
@@ -521,14 +524,14 @@ function GenerationSettings({ config, model, updateConfig, openConfigDialog }: {
             </label>
             <div className="col-span-2">
                 <VideoSettingsPanel
-                    config={config}
+                    config={{ ...config, model, seedance, seedanceChannelId: channel.id }}
                     onConfigChange={(key, value) => {
-                        if (key === "seedanceDraft") updateConfig("seedance", { ...config.seedance, draft: value === "true" });
-                        else if (key === "seedanceTaskType") updateConfig("seedance", { ...config.seedance, taskType: value as AiConfig["seedance"]["taskType"] });
-                        else if (key === "seedanceSeed") updateConfig("seedance", { ...config.seedance, seed: value });
-                        else if (key === "seedanceCameraFixed") updateConfig("seedance", { ...config.seedance, cameraFixed: value === "true" });
-                        else if (key === "seedanceReturnLastFrame") updateConfig("seedance", { ...config.seedance, returnLastFrame: value === "true" });
-                        else if (key === "seedanceOutputFormat") updateConfig("seedance", { ...config.seedance, outputFormat: value === "mov" ? "mov" : "mp4" });
+                        if (key === "seedanceDraft") updateSeedance({ draft: value === "true" });
+                        else if (key === "seedanceTaskType") updateSeedance({ taskType: value as AiConfig["seedance"]["taskType"] });
+                        else if (key === "seedanceSeed") updateSeedance({ seed: value });
+                        else if (key === "seedanceCameraFixed") updateSeedance({ cameraFixed: value === "true" });
+                        else if (key === "seedanceReturnLastFrame") updateSeedance({ returnLastFrame: value === "true" });
+                        else if (key === "seedanceOutputFormat") updateSeedance({ outputFormat: value === "mov" ? "mov" : "mp4" });
                         else updateConfig(key, value);
                     }}
                     theme={theme}
@@ -785,9 +788,12 @@ function buildLog({ prompt, model, config, references, durationMs, status, task,
 }
 
 function buildVideoConfig(config: AiConfig, model: string): AiConfig {
+    const channel = resolveModelChannel(config, model);
     return {
         ...config,
         model,
+        seedance: resolveChannelSeedanceConfig(config, channel),
+        seedanceChannelId: channel.id,
         videoModel: model,
         size: normalizeVideoSize(config.size),
         videoSeconds: normalizeVideoSeconds(config.videoSeconds),

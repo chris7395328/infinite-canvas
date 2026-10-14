@@ -4,7 +4,7 @@ import { Button, Segmented } from "antd";
 import { useTranslation } from "react-i18next";
 
 import { ModelPicker } from "@/components/model-picker";
-import { defaultConfig, resolveModelForCapability, useConfigStore, useEffectiveConfig, type AiConfig } from "@/stores/use-config-store";
+import { defaultConfig, resolveChannelSeedanceConfig, resolveModelChannel, resolveModelForCapability, useConfigStore, useEffectiveConfig, type AiConfig } from "@/stores/use-config-store";
 import { canvasThemes } from "@/lib/canvas-theme";
 import { useThemeStore } from "@/stores/use-theme-store";
 import { CanvasImageSettingsPopover } from "./canvas-image-settings-popover";
@@ -150,10 +150,14 @@ function InputChip({ label, value, style }: { label: string; value: string; styl
 }
 
 function buildNodeConfig(globalConfig: AiConfig, node: CanvasNodeData, mode: CanvasGenerationMode): AiConfig {
-    const draft = node.metadata?.seedanceDraft ?? globalConfig.seedance.draft;
+    const model = resolveModelForCapability(globalConfig, node.metadata?.model, mode);
+    const channel = resolveModelChannel(globalConfig, model);
+    const seedance = resolveChannelSeedanceConfig(globalConfig, channel);
+    const draft = node.metadata?.seedanceDraft ?? seedance.draft;
     return {
         ...globalConfig,
-        model: resolveModelForCapability(globalConfig, node.metadata?.model, mode),
+        model,
+        seedanceChannelId: channel.id,
         reasoningEffort: node.metadata?.reasoningEffort || globalConfig.reasoningEffort || defaultConfig.reasoningEffort,
         quality: node.metadata?.quality || globalConfig.quality || defaultConfig.quality,
         size: node.metadata?.size || globalConfig.size || defaultConfig.size,
@@ -164,13 +168,13 @@ function buildNodeConfig(globalConfig: AiConfig, node: CanvasNodeData, mode: Can
         videoWatermark: node.metadata?.watermark || globalConfig.videoWatermark || defaultConfig.videoWatermark,
         videoMode: node.metadata?.videoMode || globalConfig.videoMode || defaultConfig.videoMode,
         seedance: {
-            ...globalConfig.seedance,
+            ...seedance,
             draft,
-            taskType: node.metadata?.seedanceTaskType || globalConfig.seedance.taskType,
-            seed: node.metadata?.seedanceSeed ?? globalConfig.seedance.seed,
-            cameraFixed: node.metadata?.seedanceCameraFixed ?? globalConfig.seedance.cameraFixed,
-            returnLastFrame: node.metadata?.seedanceReturnLastFrame ?? globalConfig.seedance.returnLastFrame,
-            outputFormat: node.metadata?.seedanceOutputFormat ?? globalConfig.seedance.outputFormat,
+            taskType: node.metadata?.seedanceTaskType || seedance.taskType,
+            seed: node.metadata?.seedanceSeed ?? seedance.seed,
+            cameraFixed: node.metadata?.seedanceCameraFixed ?? seedance.cameraFixed,
+            returnLastFrame: node.metadata?.seedanceReturnLastFrame ?? seedance.returnLastFrame,
+            outputFormat: node.metadata?.seedanceOutputFormat ?? seedance.outputFormat,
             draftTaskId: draft ? node.metadata?.seedanceDraftTaskId : undefined,
             formalResolution: node.metadata?.seedanceFormalResolution,
         },

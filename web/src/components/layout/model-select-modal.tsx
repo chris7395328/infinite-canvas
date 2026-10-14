@@ -1,4 +1,4 @@
-import { App, Button, Checkbox, Input, Modal, Tabs } from "antd";
+import { Alert, App, Button, Checkbox, Input, Modal, Tabs } from "antd";
 import { RefreshCw, Search } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
 import { useTranslation } from "react-i18next";
@@ -17,6 +17,7 @@ export function ModelSelectModal({ open, channel, selectedNames, onConfirm, onCl
     const [search, setSearch] = useState("");
     const [manual, setManual] = useState("");
     const [loading, setLoading] = useState(false);
+    const isPixmax = /^https:\/\/openai\.pixmax\.ai\/ai-api\/volcengine\/api-key\/api\/v3\/?$/i.test(channel?.baseUrl || "");
 
     useEffect(() => {
         if (!open) return;
@@ -61,6 +62,7 @@ export function ModelSelectModal({ open, channel, selectedNames, onConfirm, onCl
 
     const fetchModels = async () => {
         if (!channel) return;
+        if (isPixmax) return;
         if (!channel.baseUrl.trim() || !channel.apiKey.trim()) {
             message.error(t("config.modelSelect.missingConfig"));
             return;
@@ -109,11 +111,11 @@ export function ModelSelectModal({ open, channel, selectedNames, onConfirm, onCl
                 <Input className="min-w-[200px] flex-1" value={search} onChange={(event) => setSearch(event.target.value)} placeholder={t("config.modelSelect.search")} prefix={<Search className="size-4 text-stone-400" />} allowClear />
                 <Input className="min-w-[180px] flex-1" value={manual} onChange={(event) => setManual(event.target.value)} onPressEnter={addManual} placeholder={t("config.modelSelect.modelName")} />
                 <Button onClick={addManual}>{t("config.modelSelect.add")}</Button>
-                <Button icon={<RefreshCw className="size-4" />} loading={loading} onClick={() => void fetchModels()}>
+                <Button icon={<RefreshCw className="size-4" />} loading={loading} disabled={isPixmax} onClick={() => void fetchModels()}>
                     {t("config.modelSelect.fetch")}
                 </Button>
             </div>
-            <div className="mt-2 text-xs text-stone-500">{t("config.modelSelect.description")}</div>
+            {isPixmax ? <Alert className="mt-3" type="info" showIcon message="Pixmax 接入指引未提供 /models 列表接口" description="请在「Seedance 官方」页点击「添加 Pixmax 海外渠道」预填四个模型，或在这里按接入指引手动填写请求 model 值。" /> : <div className="mt-2 text-xs text-stone-500">{t("config.modelSelect.description")}</div>}
 
             <Tabs
                 className="mt-3"

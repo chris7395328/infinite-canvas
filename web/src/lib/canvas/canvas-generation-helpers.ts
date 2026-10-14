@@ -1,4 +1,4 @@
-import { defaultConfig, resolveModelForCapability, type AiConfig } from "@/stores/use-config-store";
+import { defaultConfig, resolveChannelSeedanceConfig, resolveModelChannel, resolveModelForCapability, type AiConfig } from "@/stores/use-config-store";
 import i18n from "@/i18n";
 import { ensureImagePreview, resolveImageUrl, uploadImage } from "@/services/image-storage";
 import { resolveMediaUrl } from "@/services/file-storage";
@@ -106,10 +106,14 @@ export function getInputSummary(inputs: NodeGenerationInput[]) {
 }
 
 export function buildGenerationConfig(config: AiConfig, node: CanvasNodeData | undefined, mode: CanvasNodeGenerationMode): AiConfig {
-    const draft = node?.metadata?.seedanceDraft ?? config.seedance.draft;
+    const model = resolveModelForCapability(config, node?.metadata?.model, mode);
+    const channel = resolveModelChannel(config, model);
+    const seedance = resolveChannelSeedanceConfig(config, channel);
+    const draft = node?.metadata?.seedanceDraft ?? seedance.draft;
     return {
         ...config,
-        model: resolveModelForCapability(config, node?.metadata?.model, mode),
+        model,
+        seedanceChannelId: channel.id,
         reasoningEffort: node?.metadata?.reasoningEffort || config.reasoningEffort || defaultConfig.reasoningEffort,
         quality: node?.metadata?.quality || config.quality || defaultConfig.quality,
         geminiImageSize: node?.metadata?.geminiImageSize ?? config.geminiImageSize,
@@ -123,13 +127,13 @@ export function buildGenerationConfig(config: AiConfig, node: CanvasNodeData | u
         videoWatermark: node?.metadata?.watermark || config.videoWatermark || defaultConfig.videoWatermark,
         videoMode: node?.metadata?.videoMode || config.videoMode || defaultConfig.videoMode,
         seedance: {
-            ...config.seedance,
+            ...seedance,
             draft,
-            taskType: node?.metadata?.seedanceTaskType || config.seedance.taskType,
-            seed: node?.metadata?.seedanceSeed ?? config.seedance.seed,
-            cameraFixed: node?.metadata?.seedanceCameraFixed ?? config.seedance.cameraFixed,
-            returnLastFrame: node?.metadata?.seedanceReturnLastFrame ?? config.seedance.returnLastFrame,
-            outputFormat: node?.metadata?.seedanceOutputFormat ?? config.seedance.outputFormat,
+            taskType: node?.metadata?.seedanceTaskType || seedance.taskType,
+            seed: node?.metadata?.seedanceSeed ?? seedance.seed,
+            cameraFixed: node?.metadata?.seedanceCameraFixed ?? seedance.cameraFixed,
+            returnLastFrame: node?.metadata?.seedanceReturnLastFrame ?? seedance.returnLastFrame,
+            outputFormat: node?.metadata?.seedanceOutputFormat ?? seedance.outputFormat,
             draftTaskId: draft ? node?.metadata?.seedanceDraftTaskId : undefined,
             formalResolution: node?.metadata?.seedanceFormalResolution,
         },

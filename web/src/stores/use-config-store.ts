@@ -15,6 +15,7 @@ export type ChannelModel = {
     name: string;
     capability: ModelCapability;
     script?: string;
+    seedanceVersion?: "2.0" | "2.5";
 };
 
 export type ModelChannel = {
@@ -24,6 +25,7 @@ export type ModelChannel = {
     apiKey: string;
     apiFormat: ApiCallFormat;
     models: ChannelModel[];
+    seedance?: SeedanceConfig;
 };
 
 export type SeedanceConfig = {
@@ -46,11 +48,16 @@ export type SeedanceConfig = {
     cameraFixed: boolean;
     returnLastFrame: boolean;
     outputFormat: "mp4" | "mov";
+    assetApiUrl?: string;
+    assetRegion?: string;
+    apiBaseUrl?: string;
+    modelVersion?: "2.0" | "2.5";
     draftTaskId?: string;
     formalResolution?: string;
 };
 
 export type AiConfig = {
+    seedanceChannelId?: string;
     geminiAudio?: import("@/lib/gemini-audio").GeminiAudioSettings;
     channelMode: "remote" | "local";
     baseUrl: string;
@@ -213,7 +220,7 @@ type ConfigStore = {
     clearPromptContinue: () => void;
 };
 
-const VIDEO_KEYWORDS = ["video", "sora", "veo", "kling", "wan", "hailuo"];
+const VIDEO_KEYWORDS = ["video", "sora", "veo", "kling", "wan", "hailuo", "seedance"];
 
 export function boolConfig(value: string, fallback: boolean) {
     return value ? value === "true" : fallback;
@@ -370,7 +377,8 @@ export function normalizeChannelModels(models: Array<string | ChannelModel> | un
         seen.add(name);
         const capability = typeof item === "string" ? guessCapability(name) : item.capability || guessCapability(name);
         const script = typeof item === "string" ? undefined : item.script?.trim() || undefined;
-        result.push({ name, capability, script });
+        const seedanceVersion = typeof item === "string" ? undefined : item.seedanceVersion;
+        result.push({ name, capability, script, ...(seedanceVersion === "2.0" || seedanceVersion === "2.5" ? { seedanceVersion } : {}) });
     }
     return result;
 }
@@ -384,6 +392,7 @@ export function createModelChannel(channel?: Partial<ModelChannel>): ModelChanne
         apiKey: channel?.apiKey || "",
         apiFormat,
         models: normalizeChannelModels(channel?.models),
+        ...(channel?.seedance ? { seedance: normalizeSeedanceConfig(channel.seedance) } : {}),
     };
 }
 
@@ -500,13 +509,31 @@ export function resolveModelChannel(config: AiConfig, value: string) {
 
 export function resolveModelRequestConfig(config: AiConfig, value: string) {
     const channel = resolveModelChannel(config, value);
+    const selected = channel.models.find((item) => item.name === modelOptionName(value));
     return {
         ...config,
         model: modelOptionName(value || config.model),
         baseUrl: channel.baseUrl,
         apiKey: channel.apiKey,
         apiFormat: channel.apiFormat,
+        seedance: { ...(config.seedanceChannelId === channel.id ? config.seedance : resolveChannelSeedanceConfig(config, channel)), modelVersion: selected?.seedanceVersion || seedanceModelVersion(config, value) },
+        seedanceChannelId: channel.id,
     };
+}
+
+export function resolveChannelSeedanceConfig(config: AiConfig, channel: ModelChannel): SeedanceConfig {
+    if (channel.seedance) return normalizeSeedanceConfig(channel.seedance);
+    if (/^https:\/\/ark\.cn-beijing\.volces\.com\/api\/v3\/?$/i.test(channel.baseUrl)) return normalizeSeedanceConfig(config.seedance);
+    return normalizeSeedanceConfig({ bridgeUrl: config.seedance.bridgeUrl });
+}
+
+export function seedanceModelVersion(config: AiConfig, value: string): "2.0" | "2.5" | undefined {
+    const selected = findChannelModel(config, value)?.model;
+    if (selected?.seedanceVersion) return selected.seedanceVersion;
+    const name = modelOptionName(value).toLowerCase();
+    if (/seedance-2-5/.test(name)) return "2.5";
+    if (/seedance-2-0/.test(name)) return "2.0";
+    return undefined;
 }
 
 export function isVolcengineSeedance25(config: AiConfig) {
@@ -517,7 +544,7 @@ export function isVolcengineSeedance25(config: AiConfig) {
     const isArkChannel =
         channel.apiFormat === "volcengine" ||
         /ark\.cn-beijing\.volces\.com\/api\/v3/i.test(channel.baseUrl || "");
-    return isArkChannel && modelOptionName(config.model).toLowerCase().includes("doubao-seedance-2-5");
+    return isArkChannel && seedanceModelVersion(config, config.model) === "2.5";
 }
 
 function normalizeChannels(config: AiConfig) {
