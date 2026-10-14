@@ -17,7 +17,7 @@ export function ModelSelectModal({ open, channel, selectedNames, onConfirm, onCl
     const [search, setSearch] = useState("");
     const [manual, setManual] = useState("");
     const [loading, setLoading] = useState(false);
-    const isPixmax = /^https:\/\/openai\.pixmax\.ai\/ai-api\/volcengine\/api-key\/api\/v3\/?$/i.test(channel?.baseUrl || "");
+    const isPixmax = /^https:\/\/openai\.pixmax\.ai\/ai-api\/volcengine\/api-key(?:\/api\/v3)?\/?$/i.test(channel?.baseUrl || "");
 
     useEffect(() => {
         if (!open) return;

@@ -104,7 +104,10 @@ function volcTimestamp(now) {
 function seedanceApiBaseUrl(value) {
     if (!value) return ARK_BASE_URL;
     const url = new URL(value);
-    if (url.protocol !== "https:" || url.username || url.password || url.search || url.hash || !url.pathname.replace(/\/+$/, "").endsWith("/api/v3")) throw new Error("Seedance 渠道地址必须为 HTTPS 且以 /api/v3 结尾");
+    if (url.protocol !== "https:" || url.username || url.password || url.search || url.hash) throw new Error("Seedance 渠道地址必须为无附加参数的 HTTPS 地址");
+    const path = url.pathname.replace(/\/+$/, "");
+    if (url.hostname === "openai.pixmax.ai" && path === "/ai-api/volcengine/api-key") url.pathname = `${path}/api/v3`;
+    else if (!path.endsWith("/api/v3")) throw new Error("Seedance 渠道地址必须以 /api/v3 结尾；Pixmax 接入指引中的 /ai-api/volcengine/api-key 端点地址也可直接填写");
     return url.href.replace(/\/+$/, "");
 }
 
@@ -129,8 +132,8 @@ async function callVolcAssetApi(action, body, settings) {
     const { url, region } = volcAssetEndpoint(settings);
     const host = url.host;
     const payloadHash = sha256(payload);
-    const canonicalHeaders = `content-type:application/json\nhost:${host}\nx-date:${timestamp}\n`;
-    const signedHeaders = "content-type;host;x-date";
+    const canonicalHeaders = `content-type:application/json\nhost:${host}\nx-content-sha256:${payloadHash}\nx-date:${timestamp}\n`;
+    const signedHeaders = "content-type;host;x-content-sha256;x-date";
     const canonicalRequest = `POST\n${url.pathname}\n${query}\n${canonicalHeaders}\n${signedHeaders}\n${payloadHash}`;
     const scope = `${date}/${region}/ark/request`;
     const signingKey = hmacSha256(hmacSha256(hmacSha256(hmacSha256(secretAccessKey, date), region), "ark"), "request");
@@ -140,6 +143,7 @@ async function callVolcAssetApi(action, body, settings) {
         method: "POST",
         headers: {
             "content-type": "application/json",
+            "x-content-sha256": payloadHash,
             "x-date": timestamp,
             authorization: `HMAC-SHA256 Credential=${accessKeyId}/${scope}, SignedHeaders=${signedHeaders}, Signature=${signature}`,
         },
@@ -148,7 +152,8 @@ async function callVolcAssetApi(action, body, settings) {
     const text = await response.text();
     let result;
     try { result = JSON.parse(text); } catch { result = {}; }
-    if (!response.ok) throw new Error(`素材库 ${action} 失败 (${response.status})：${result.Message || result.Error?.Message || text.slice(0, 500) || "未返回错误说明"}`);
+    const serviceError = result.ResponseMetadata?.Error;
+    if (!response.ok || serviceError) throw new Error(`素材库 ${action} 失败 (${response.status})：${serviceError?.Message || result.Message || result.Error?.Message || text.slice(0, 500) || "未返回错误说明"}`);
     return result;
 }
 
@@ -253,6 +258,12 @@ function seedanceContent(prompt, references, mode) {
     })];
 }
 
+function providerError(data) {
+    const error = data?.error || data?.Error;
+    return [typeof error === "string" ? error : error?.message || error?.Message, data?.message, data?.Message, data?.msg]
+        .find((value) => typeof value === "string" && value.trim()) || "未返回错误说明";
+}
+
 async function generateSeedance(input) {
     const settings = { ...(input.seedance || {}), apiBaseUrl: seedanceApiBaseUrl(input.baseUrl || input.seedance?.apiBaseUrl) };
     const model = required(input.model, "Seedance 模型");
@@ -306,7 +317,7 @@ async function generateSeedance(input) {
         body: JSON.stringify(body),
     });
     const createdBody = await created.json().catch(() => ({}));
-    if (!created.ok) throw new Error(`方舟创建任务失败 (${created.status})：${createdBody.error?.message || createdBody.message || "未返回错误说明"}`);
+    if (!created.ok) throw new Error(`方舟创建任务失败 (${created.status})：${providerError(createdBody)}`);
     const taskId = createdBody.id;
     if (!taskId) throw new Error("方舟未返回任务 ID");
     for (;;) {
@@ -322,7 +333,7 @@ async function generateSeedance(input) {
             continue;
         }
         const task = await response.json().catch(() => ({}));
-        if (!response.ok) throw new Error(`方舟查询任务失败 (${response.status})：${task.error?.message || task.message || "未返回错误说明"}`);
+        if (!response.ok) throw new Error(`方舟查询任务失败 (${response.status})：${providerError(task)}`);
         const url = task.content?.video_url || task.video_url || task.url;
         if (url) {
             // Ark identifies a sample by the ID returned when the draft task is

@@ -11,6 +11,15 @@ const RETENTION = 24 * 60 * 60 * 1000;
 const OVERHEAD = 1024;
 const digest = (value) => createHash("sha256").update(value).digest("hex");
 
+function responseError(buffer) {
+    let data;
+    try { data = JSON.parse(buffer.toString("utf8")); }
+    catch { return ""; }
+    const error = data?.error || data?.Error;
+    return [typeof error === "string" ? error : error?.message || error?.Message, data?.message, data?.Message, data?.msg]
+        .find((value) => typeof value === "string" && value.trim()) || "";
+}
+
 export function createMemoryTasks() {
     const tasks = new Map();
     const storage = process.env.CANVAS_TASK_DIR ? createTaskStorage(process.env.CANVAS_TASK_DIR) : null;
@@ -192,7 +201,10 @@ export function createMemoryTasks() {
                             if (/^(application|binary)\/octet-stream(?:\s*;|$)/i.test(task.contentType)) task.contentType = result.mime || "video/mp4";
                         }
                     }
-                    if (task.status < 200 || task.status >= 300) throw new Error("上游请求返回HTTP " + task.status + "；不能视为已成功生成。");
+                    if (task.status < 200 || task.status >= 300) {
+                        const detail = responseError(await payload());
+                        throw new Error(`上游请求返回 HTTP ${task.status}${detail ? `：${detail}` : ""}；不能视为已成功生成。`);
+                    }
                     if (!(storage ? task.payloadSize : task.bytes - OVERHEAD)) throw new Error("上游返回空结果，不能视为已成功保存。");
                     task.controller.signal.throwIfAborted();
                     if (storage) { task.finishedAt = await storage.complete(task); task.durable = true; }

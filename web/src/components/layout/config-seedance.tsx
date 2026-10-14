@@ -5,6 +5,7 @@ import { useState } from "react";
 import { createModelChannel, defaultSeedanceConfig, modelOptionsFromChannels, resolveChannelSeedanceConfig, useConfigStore, type ModelChannel } from "@/stores/use-config-store";
 
 const PIXMAX_BASE_URL = "https://openai.pixmax.ai/ai-api/volcengine/api-key/api/v3";
+const PIXMAX_ENDPOINT = "https://openai.pixmax.ai/ai-api/volcengine/api-key";
 const PIXMAX_MODELS = [
     { name: "dreamina-seedance-2-0-260128", capability: "video" as const, seedanceVersion: "2.0" as const },
     { name: "dreamina-seedance-2-0-fast-260128", capability: "video" as const, seedanceVersion: "2.0" as const },
@@ -28,10 +29,10 @@ export function ConfigSeedance({ onAddModels }: { onAddModels: () => void }) {
         updateChannels(config.channels.map((item) => item.id === channel.id ? { ...item, seedance: { ...seedance, [key]: value } } : item));
     };
     const addPixmaxChannel = () => {
-        const existing = config.channels.find((item) => item.baseUrl.replace(/\/+$/, "") === PIXMAX_BASE_URL);
+        const existing = config.channels.find((item) => [PIXMAX_BASE_URL, PIXMAX_ENDPOINT].includes(item.baseUrl.replace(/\/+$/, "")));
         if (existing) {
             const names = new Set(existing.models.map((item) => item.name));
-            updateChannels(config.channels.map((item) => item.id === existing.id ? { ...item, models: [...item.models.map((saved) => {
+            updateChannels(config.channels.map((item) => item.id === existing.id ? { ...item, apiFormat: "volcengine", baseUrl: PIXMAX_BASE_URL, seedance: item.seedance || { ...defaultSeedanceConfig, bridgeUrl: config.seedance.bridgeUrl, projectName: "default", assetApiUrl: "https://openai.pixmax.ai/ai-api/volcengine/openapi/", assetRegion: "ap-southeast-1" }, models: [...item.models.map((saved) => {
                 const preset = PIXMAX_MODELS.find((model) => model.name === saved.name);
                 return preset ? { ...saved, capability: "video" as const, seedanceVersion: preset.seedanceVersion } : saved;
             }), ...PIXMAX_MODELS.filter((model) => !names.has(model.name))] } : item));
