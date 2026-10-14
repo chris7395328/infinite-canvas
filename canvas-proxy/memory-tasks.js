@@ -11,13 +11,17 @@ const RETENTION = 24 * 60 * 60 * 1000;
 const OVERHEAD = 1024;
 const digest = (value) => createHash("sha256").update(value).digest("hex");
 
-function responseError(buffer) {
+export function responseError(buffer) {
     let data;
     try { data = JSON.parse(buffer.toString("utf8")); }
     catch { return ""; }
-    const error = data?.error || data?.Error;
-    return [typeof error === "string" ? error : error?.message || error?.Message, data?.message, data?.Message, data?.msg]
-        .find((value) => typeof value === "string" && value.trim()) || "";
+    const metadata = data?.ResponseMetadata || data?.data?.ResponseMetadata;
+    const error = metadata?.Error || data?.error || data?.Error || data?.data?.error || data?.data?.Error;
+    const message = [typeof error === "string" ? error : error?.message || error?.Message || error?.detail || error?.Detail, data?.message, data?.Message, data?.msg]
+        .find((value) => typeof value === "string" && value.trim());
+    const code = error?.code || error?.Code || error?.type || error?.Type;
+    const requestId = metadata?.RequestId || data?.request_id || data?.requestId || data?.data?.request_id;
+    return [code, message, requestId && `Request ID: ${requestId}`].filter(Boolean).join("；");
 }
 
 export function createMemoryTasks() {
