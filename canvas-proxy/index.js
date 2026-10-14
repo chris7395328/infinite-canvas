@@ -4,6 +4,7 @@ import { createHash, createHmac, randomUUID } from "node:crypto";
 import { createRequire } from "node:module";
 import { Readable } from "node:stream";
 import { createMemoryTasks } from "./memory-tasks.js";
+import { providerError } from "./provider-error.js";
 
 const pkg = createRequire(import.meta.url)("./package.json");
 
@@ -153,7 +154,7 @@ async function callVolcAssetApi(action, body, settings) {
     let result;
     try { result = JSON.parse(text); } catch { result = {}; }
     const serviceError = result.ResponseMetadata?.Error;
-    if (!response.ok || serviceError) throw new Error(`素材库 ${action} 失败 (${response.status})：${serviceError?.Message || result.Message || result.Error?.Message || text.slice(0, 500) || "未返回错误说明"}`);
+    if (!response.ok || serviceError) throw new Error(`素材库 ${action} 失败 (${response.status})：${providerError(result, text.slice(0, 500) || "未返回错误说明")}`);
     return result;
 }
 
@@ -258,12 +259,6 @@ function seedanceContent(prompt, references, mode) {
     })];
 }
 
-function providerError(data) {
-    const error = data?.error || data?.Error;
-    return [typeof error === "string" ? error : error?.message || error?.Message, data?.message, data?.Message, data?.msg]
-        .find((value) => typeof value === "string" && value.trim()) || "未返回错误说明";
-}
-
 async function generateSeedance(input) {
     const settings = { ...(input.seedance || {}), apiBaseUrl: seedanceApiBaseUrl(input.baseUrl || input.seedance?.apiBaseUrl) };
     const model = required(input.model, "Seedance 模型");
@@ -317,7 +312,7 @@ async function generateSeedance(input) {
         body: JSON.stringify(body),
     });
     const createdBody = await created.json().catch(() => ({}));
-    if (!created.ok) throw new Error(`方舟创建任务失败 (${created.status})：${providerError(createdBody)}`);
+    if (!created.ok) throw new Error(`方舟创建任务失败 (${created.status})：${providerError(createdBody, "未返回错误说明")}`);
     const taskId = createdBody.id;
     if (!taskId) throw new Error("方舟未返回任务 ID");
     for (;;) {
@@ -333,7 +328,7 @@ async function generateSeedance(input) {
             continue;
         }
         const task = await response.json().catch(() => ({}));
-        if (!response.ok) throw new Error(`方舟查询任务失败 (${response.status})：${providerError(task)}`);
+        if (!response.ok) throw new Error(`方舟查询任务失败 (${response.status})：${providerError(task, "未返回错误说明")}`);
         const url = task.content?.video_url || task.video_url || task.url;
         if (url) {
             // Ark identifies a sample by the ID returned when the draft task is

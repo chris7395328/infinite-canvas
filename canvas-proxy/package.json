@@ -11,6 +11,7 @@
   "files": [
     "index.js",
     "memory-tasks.js",
+    "provider-error.js",
     "video-tasks.js",
     "task-storage.js",
     "README.md"

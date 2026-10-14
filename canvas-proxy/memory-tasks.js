@@ -5,6 +5,7 @@ import { request as httpsRequest } from "node:https";
 import { resolveVideoTask } from "./video-tasks.js";
 import { setTimeout as pause } from "node:timers/promises";
 import { createTaskStorage } from "./task-storage.js";
+import { providerError } from "./provider-error.js";
 
 // Docker streams responses into its mapped directory; no application-level size cap.
 const RETENTION = 24 * 60 * 60 * 1000;
@@ -15,13 +16,7 @@ export function responseError(buffer) {
     let data;
     try { data = JSON.parse(buffer.toString("utf8")); }
     catch { return ""; }
-    const metadata = data?.ResponseMetadata || data?.data?.ResponseMetadata;
-    const error = metadata?.Error || data?.error || data?.Error || data?.data?.error || data?.data?.Error;
-    const message = [typeof error === "string" ? error : error?.message || error?.Message || error?.detail || error?.Detail, data?.message, data?.Message, data?.msg]
-        .find((value) => typeof value === "string" && value.trim());
-    const code = error?.code || error?.Code || error?.type || error?.Type;
-    const requestId = metadata?.RequestId || data?.request_id || data?.requestId || data?.data?.request_id;
-    return [code, message, requestId && `Request ID: ${requestId}`].filter(Boolean).join("；");
+    return providerError(data);
 }
 
 export function createMemoryTasks() {

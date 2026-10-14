@@ -7,6 +7,7 @@ import { createServer } from "node:http";
 import { createHash, randomUUID } from "node:crypto";
 import { Readable } from "node:stream";
 import { createMemoryTasks, responseError } from "./memory-tasks.js";
+import { providerError } from "./provider-error.js";
 import { createTaskStorage } from "./task-storage.js";
 
 const listen = async handler => {
@@ -133,4 +134,5 @@ test("provider error codes and request IDs reach a failed Docker task", async ()
 
 test("common gateway error envelopes expose code and message", () => {
     assert.equal(responseError(Buffer.from(JSON.stringify({ data: { error: { code: "invalid_request_error", message: "Missing model" } }, request_id: "req-42" }))), "invalid_request_error；Missing model；Request ID: req-42");
+    assert.equal(providerError({ ResponseMetadata: { RequestId: "pixmax-42", Error: { Code: "SignatureDoesNotMatch", Message: "Signature mismatch" } } }), "SignatureDoesNotMatch；Signature mismatch；Request ID: pixmax-42");
 });
