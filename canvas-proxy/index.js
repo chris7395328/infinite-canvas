@@ -422,7 +422,7 @@ export function createProxyServer() {
         }
         const target = readTarget(req.url || "/");
         if (!target) {
-            sendJson(res, 200, { app: "infinite-canvas", proxy: pkg.name, version: pkg.version, memoryTasks: 2, taskStorage: process.env.CANVAS_TASK_DIR ? "disk" : "memory", usage: "/<full-target-url>" });
+            sendJson(res, 200, { app: "infinite-canvas", proxy: pkg.name, version: pkg.version, memoryTasks: 2, multipartContentLength: true, taskStorage: process.env.CANVAS_TASK_DIR ? "disk" : "memory", usage: "/<full-target-url>" });
             return;
         }
         const startedAt = Date.now();

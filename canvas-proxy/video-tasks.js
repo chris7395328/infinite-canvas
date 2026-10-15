@@ -1,6 +1,6 @@
 import { setTimeout as pause } from "node:timers/promises";
 
-const failure = (value) => value?.error?.message || value?.fail_reason || value?.message || "API 返回生成失败";
+const failure = (value) => (typeof value?.error === "string" ? value.error : value?.error?.message) || value?.fail_reason || value?.message || "API 返回生成失败";
 const unwrap = (value) => value?.data && typeof value.data === "object" && !Array.isArray(value.data) ? value.data : value;
 const resultUrl = (value) => value?.content?.video_url || value?.video_url || value?.result_url || value?.url;
 
@@ -9,17 +9,19 @@ export async function resolveVideoTask(protocol, initial, target, headers, task,
     // Keep the existing script profile as an alias, without inspecting model IDs or hosts.
     if (protocol === "xing933") protocol = "json-video";
     let value = unwrap(initial);
+    if (protocol === "json-video" && (value?.code === "0" || value?.code === 0)) throw new Error(`API 返回请求失败：${failure(value)}`);
     const id = value?.id || value?.task_id || value?.name;
     task.upstreamId = id;
     if (protocol !== "omni" && !id && !resultUrl(value)) throw new Error("API 未返回任务 ID 或视频结果，无法继续查询；未重新生成。");
     const base = new URL(target);
-    const authenticated = (url) => new URL(url).origin === base.origin ? headers : {};
+    const authenticated = (url) => !task.publicResult && new URL(url).origin === base.origin ? headers : {};
     let pollUrl;
     if (protocol === "openai" || protocol === "moyu") pollUrl = `${target.href.replace(/\/$/, "")}/${encodeURIComponent(id)}`;
     if (protocol === "json-video") pollUrl = `${target.href.replace(/\/videos\/generations\/?$/, "/videos")}/${encodeURIComponent(id)}`;
     if (protocol === "gemini") pollUrl = new URL(`../${String(id).replace(/^\//, "")}`, new URL("./", target)).href;
     for (;;) {
         task.controller.signal.throwIfAborted();
+        if (protocol === "json-video" && (value?.code === "0" || value?.code === 0)) throw new Error(`API 返回请求失败：${failure(value)}`);
         const status = String(value?.status || value?.stage || "").toLowerCase();
         if (value?.error || value?.data?.error || ["failed", "failure", "cancelled", "canceled", "error", "incomplete", "expired"].includes(status)) throw new Error(`API 返回生成失败：${failure(value?.data?.error ? value.data : value)}`);
         if (protocol === "omni") {

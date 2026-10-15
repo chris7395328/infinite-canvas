@@ -5,6 +5,8 @@ description: Implemented changes that still need manual verification
 
 # Pending Tests
 
+- Multipart video relay: the Docker background task must forward the exact Content-Length, expose the provider's `code="0"` and terminal failure messages, and omit Bearer authentication when downloading a public result URL even on the API origin. `scripts/provider/seedance25-30s-multipart.js` follows the supplied contract: 30 seconds, supported ratios, JPG/PNG `images[]` file uploads, and prior staging in the user's COS. Proxy fixture tests passed; live TLS, COS, billing, creation, and retrieval remain unverified. This script requires an updated proxy image.
+
 - Docker background error propagation: for `ResponseMetadata.Error` and common `error` envelopes, failed nodes and their Info panel should show HTTP status, provider code, message, and request ID; the mapped-directory receipt should retain them across reloads. A local simulated 401 regression test was added. Generation POSTs are never retried automatically; live Pixmax/Synology behavior still needs deployment validation.
 
 - Pixmax private-asset signing: after `CreateAssetGroup` returned 401, the proxy now sends the request-body SHA-256 in `X-Content-Sha256` and includes it in the signed headers and canonical request, matching the BytePlus OpenAPI example; it also reads `ResponseMetadata.Error`. Verify asset-group creation, CreateAsset/GetAsset, and final video generation/retrieval on Synology with the existing channel-specific AK/SK, project and region. No paid request or live signed call with the user's credentials was made; the 401 fix still needs deployment validation. Old failed tasks are not automatically retried.

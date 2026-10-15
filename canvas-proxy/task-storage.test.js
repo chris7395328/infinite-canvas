@@ -9,6 +9,7 @@ import { Readable } from "node:stream";
 import { createMemoryTasks, responseError } from "./memory-tasks.js";
 import { providerError } from "./provider-error.js";
 import { createTaskStorage } from "./task-storage.js";
+import { resolveVideoTask } from "./video-tasks.js";
 
 const listen = async handler => {
     const server = createServer(handler);
@@ -22,8 +23,10 @@ test("disk results survive a new server, ACK and duplicate POST; no request secr
     const previous = process.env.CANVAS_TASK_DIR;
     process.env.CANVAS_TASK_DIR = dir;
     let calls = 0;
+    let legacyLength;
     const upstream = await listen(async (req, res) => {
         for await (const chunk of req) { /* drain fixture request */ }
+        legacyLength = req.headers["content-length"];
         calls++;
         res.writeHead(200, { "content-type": "video/mp4" }); res.end("fixture-video-payload");
     });
@@ -56,6 +59,7 @@ test("disk results survive a new server, ACK and duplicate POST; no request secr
         assert.equal(await (await fetch(`${task}/result`, { headers })).text(), "fixture-video-payload");
         assert.equal((await fetch(task, { method: "POST", headers: submission, body: "duplicate" })).status, 202);
         assert.equal(calls, 1);
+        assert.equal(legacyLength, undefined); // Existing task transport does not opt in.
         assert.equal((await fetch(task, { headers: { "x-canvas-task-key": randomUUID() } })).status, 403);
         const metadata = await readFile(join(dir, id + ".json"), "utf8");
         assert.ok(!metadata.includes("fixture-secret") && !metadata.includes("fixture-private-prompt"));
@@ -135,4 +139,64 @@ test("provider error codes and request IDs reach a failed Docker task", async ()
 test("common gateway error envelopes expose code and message", () => {
     assert.equal(responseError(Buffer.from(JSON.stringify({ data: { error: { code: "invalid_request_error", message: "Missing model" } }, request_id: "req-42" }))), "invalid_request_error；Missing model；Request ID: req-42");
     assert.equal(providerError({ ResponseMetadata: { RequestId: "pixmax-42", Error: { Code: "SignatureDoesNotMatch", Message: "Signature mismatch" } } }), "SignatureDoesNotMatch；Signature mismatch；Request ID: pixmax-42");
+});
+
+test("multipart background POST has exact Content-Length and public result omits Bearer", async () => {
+    const taskId = "0123456789abcdef0123456789abcdef";
+    const body = Buffer.from("--fixture\r\nContent-Disposition: form-data; name=\"prompt\"\r\n\r\ntest\r\n--fixture--\r\n");
+    let receivedLength;
+    let mediaAuthorization;
+    let upstreamBase;
+    const upstream = await listen(async (req, res) => {
+        if (req.method === "POST") {
+            const chunks = [];
+            for await (const chunk of req) chunks.push(chunk);
+            receivedLength = req.headers["content-length"];
+            assert.equal(Number(receivedLength), Buffer.concat(chunks).length);
+            assert.match(req.headers["content-type"], /^multipart\/form-data; boundary=fixture$/);
+            assert.equal(req.headers["idempotency-key"], "fixture-key-123");
+            res.writeHead(200, { "content-type": "application/json" });
+            res.end(JSON.stringify({ code: "1", task_id: taskId, status: "succeeded", url: upstreamBase + "/media" }));
+            return;
+        }
+        if (req.url === "/media") {
+            mediaAuthorization = req.headers.authorization;
+            res.writeHead(mediaAuthorization ? 403 : 200, { "content-type": "video/mp4" });
+            res.end(mediaAuthorization ? "unexpected Bearer" : "fixture-video");
+            return;
+        }
+        res.writeHead(404); res.end();
+    });
+    upstreamBase = upstream.base;
+    const createHandle = createMemoryTasks();
+    const proxy = await listen((req, res) => void createHandle(req, res));
+    try {
+        const id = randomUUID();
+        const key = randomUUID();
+        const taskUrl = `${proxy.base}/_tasks/${id}`;
+        const headers = { "x-canvas-task-key": key };
+        const submitted = await fetch(taskUrl, { method: "POST", headers: {
+            ...headers, "x-canvas-target-url": upstream.base + "/api/v1/videos", "x-canvas-video-protocol": "json-video",
+            "x-canvas-video-public-result": "1", "x-canvas-require-content-length": "1", Authorization: "Bearer fixture-token", "Idempotency-Key": "fixture-key-123",
+            "content-type": "multipart/form-data; boundary=fixture",
+        }, body });
+        assert.equal(submitted.status, 202);
+        let state;
+        for (let index = 0; index < 100; index++) {
+            state = await (await fetch(taskUrl, { headers })).json();
+            if (state.state === "completed" || state.state === "failed") break;
+            await new Promise(resolve => setTimeout(resolve, 10));
+        }
+        assert.equal(state.state, "completed", state.error);
+        assert.equal(receivedLength, String(body.length));
+        assert.equal(mediaAuthorization, undefined);
+        assert.equal(await (await fetch(taskUrl + "/result", { headers })).text(), "fixture-video");
+    } finally {
+        await close(proxy.server);
+        await close(upstream.server);
+    }
+});
+
+test("JSON video business errors expose the provider message", async () => {
+    await assert.rejects(resolveVideoTask("json-video", { code: "0", message: "积分不足" }, new URL("https://example.com/api/v1/videos"), {}, { controller: new AbortController() }, async () => {}), /积分不足/);
 });

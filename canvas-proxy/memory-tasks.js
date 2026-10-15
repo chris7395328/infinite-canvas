@@ -98,6 +98,9 @@ export function createMemoryTasks() {
                 if (key.startsWith("x-canvas-") || ["host", "connection", "content-length", "accept-encoding", "origin", "referer", "cookie"].includes(key) || key.startsWith("sec-") || value === undefined) continue;
                 headers[key] = Array.isArray(value) ? value.join(", ") : value;
             }
+            // Opt in only for providers that require a fixed multipart length.
+            if (req.headers["x-canvas-require-content-length"] === "1") headers["content-length"] = String(task.bytes - OVERHEAD);
+            task.publicResult = req.headers["x-canvas-video-public-result"] === "1";
             const body = Readable.from(task.chunks);
             task.state = "running";
             try { if (storage) await storage.save(task); }
