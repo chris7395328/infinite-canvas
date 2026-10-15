@@ -5,6 +5,8 @@ description: Implemented changes that still need manual verification
 
 # Pending Tests
 
+- Docker plain-text error propagation: when an upstream video creation returns HTTP 429 with `上游模型维护，敬请期待`, the failed node and Info panel should show that text and disk task metadata should retain it. JSON string errors should also display; HTML and incomplete JSON are not echoed as messages. Paid POSTs are not retried. Verify the real Synology 429 after updating the image.
+
 - Multipart video relay: the Docker background task must forward the exact Content-Length, expose the provider's `code="0"` and terminal failure messages, and omit Bearer authentication when downloading a public result URL even on the API origin. `scripts/provider/seedance25-30s-multipart.js` follows the supplied contract: 30 seconds, supported ratios, JPG/PNG `images[]` file uploads, and prior staging in the user's COS. Proxy fixture tests passed; live TLS, COS, billing, creation, and retrieval remain unverified. This script requires an updated proxy image.
 
 - Docker background error propagation: for `ResponseMetadata.Error` and common `error` envelopes, failed nodes and their Info panel should show HTTP status, provider code, message, and request ID; the mapped-directory receipt should retain them across reloads. A local simulated 401 regression test was added. Generation POSTs are never retried automatically; live Pixmax/Synology behavior still needs deployment validation.

@@ -5,6 +5,8 @@ description: 当前版本已实现但仍需人工验证的变更项
 
 # 待测试
 
+- Docker后台纯文本错误透传：模拟上游创建任务返回HTTP 429和文本`上游模型维护，敬请期待`时，失败节点及「信息」面板应显示原文，磁盘任务元数据应保留同样说明；JSON字符串错误也应显示，HTML和不完整JSON仍不作为说明回显。不会重发付费POST；群晖真实429需更新镜像后验证。
+
 - multipart视频中转：Docker后台应为已完整接收的请求体设置准确Content-Length，站点返回`code="0"`或最终失败时把说明显示到节点；公开成片URL即便与API同域也不附带Bearer令牌。`scripts/provider/seedance25-30s-multipart.js`按站方文档仅发送30秒、支持画幅及`images[]` JPG/PNG文件，本地参考图先上传已有COS。代理模拟测试通过；真实TLS、COS、积分、创建及领取仍需用户用自己的账号验收，旧镜像必须更新才可使用此脚本。
 
 - Docker后台错误透传：上游返回`ResponseMetadata.Error`或常见`error`结构时，失败节点及「信息」面板应显示HTTP状态、错误码、说明和Request ID；刷新后从映射目录恢复也应保留同样内容。已添加本地模拟401的回归测试，不会自动重发生成POST；真实Pixmax/群晖错误仍需部署后验证。

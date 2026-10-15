@@ -13,10 +13,15 @@ const OVERHEAD = 1024;
 const digest = (value) => createHash("sha256").update(value).digest("hex");
 
 export function responseError(buffer) {
+    const text = buffer.toString("utf8").trim();
     let data;
-    try { data = JSON.parse(buffer.toString("utf8")); }
-    catch { return ""; }
-    return providerError(data);
+    try { data = JSON.parse(text); }
+    catch {
+        if (!text || /^[<{[]/.test(text)) return "";
+        data = text;
+    }
+    const detail = typeof data === "string" ? data : providerError(data);
+    return detail.replace(/[\u0000-\u001f\u007f]+/g, " ").replace(/(Bearer\s+)\S+/gi, "$1[已隐藏]").trim();
 }
 
 export function createMemoryTasks() {

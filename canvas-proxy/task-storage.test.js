@@ -104,6 +104,11 @@ test("provider error codes and request IDs reach a failed Docker task", async ()
     process.env.CANVAS_TASK_DIR = dir;
     const upstream = await listen(async (req, res) => {
         for await (const chunk of req) { /* drain fixture request */ }
+        if (req.url === "/plain") {
+            res.writeHead(429, { "content-type": "text/plain; charset=utf-8", "retry-after": "7" });
+            res.end("大草原，居然是上游模型维护,敬请期待");
+            return;
+        }
         res.writeHead(401, { "content-type": "application/json" });
         res.end(JSON.stringify({ ResponseMetadata: { RequestId: "request-123", Error: { Code: "InvalidSignature", Message: "X-Content-Sha256 is missing" } } }));
     });
@@ -128,6 +133,22 @@ test("provider error codes and request IDs reach a failed Docker task", async ()
             await new Promise(resolve => setTimeout(resolve, 10));
         }
         assert.equal(saved.error, state.error);
+        const plainId = randomUUID();
+        const plainTask = `${proxy.base}/_tasks/${plainId}`;
+        assert.equal((await fetch(plainTask, { method: "POST", headers: { ...headers, "x-canvas-target-url": upstream.base + "/plain" }, body: "fixture" })).status, 202);
+        for (let index = 0; index < 100; index++) {
+            state = await (await fetch(plainTask, { headers })).json();
+            if (state.state === "failed") break;
+            await new Promise(resolve => setTimeout(resolve, 10));
+        }
+        assert.equal(state.state, "failed");
+        assert.match(state.error, /HTTP 429.*大草原，居然是上游模型维护,敬请期待/);
+        for (let index = 0; index < 100; index++) {
+            saved = JSON.parse(await readFile(join(dir, plainId + ".json"), "utf8"));
+            if (saved.state === "failed") break;
+            await new Promise(resolve => setTimeout(resolve, 10));
+        }
+        assert.equal(saved.error, state.error);
     } finally {
         await close(proxy.server);
         await close(upstream.server);
@@ -138,6 +159,9 @@ test("provider error codes and request IDs reach a failed Docker task", async ()
 
 test("common gateway error envelopes expose code and message", () => {
     assert.equal(responseError(Buffer.from(JSON.stringify({ data: { error: { code: "invalid_request_error", message: "Missing model" } }, request_id: "req-42" }))), "invalid_request_error；Missing model；Request ID: req-42");
+    assert.equal(responseError(Buffer.from('"上游模型维护，敬请期待"')), "上游模型维护，敬请期待");
+    assert.equal(responseError(Buffer.from("<!DOCTYPE html><html>maintenance</html>")), "");
+    assert.equal(responseError(Buffer.from('{"message":')), "");
     assert.equal(providerError({ ResponseMetadata: { RequestId: "pixmax-42", Error: { Code: "SignatureDoesNotMatch", Message: "Signature mismatch" } } }), "SignatureDoesNotMatch；Signature mismatch；Request ID: pixmax-42");
 });
 
