@@ -170,6 +170,7 @@ test("multipart background POST has exact Content-Length and public result omits
     const body = Buffer.from("--fixture\r\nContent-Disposition: form-data; name=\"prompt\"\r\n\r\ntest\r\n--fixture--\r\n");
     let receivedLength;
     let mediaAuthorization;
+    let pollHeaders;
     let upstreamBase;
     const upstream = await listen(async (req, res) => {
         if (req.method === "POST") {
@@ -179,6 +180,12 @@ test("multipart background POST has exact Content-Length and public result omits
             assert.equal(Number(receivedLength), Buffer.concat(chunks).length);
             assert.match(req.headers["content-type"], /^multipart\/form-data; boundary=fixture$/);
             assert.equal(req.headers["idempotency-key"], "fixture-key-123");
+            res.writeHead(200, { "content-type": "application/json" });
+            res.end(JSON.stringify({ code: "1", task_id: taskId, status: "processing" }));
+            return;
+        }
+        if (req.url === `/api/v1/videos/${taskId}`) {
+            pollHeaders = req.headers;
             res.writeHead(200, { "content-type": "application/json" });
             res.end(JSON.stringify({ code: "1", task_id: taskId, status: "succeeded", url: upstreamBase + "/media" }));
             return;
@@ -206,13 +213,17 @@ test("multipart background POST has exact Content-Length and public result omits
         }, body });
         assert.equal(submitted.status, 202);
         let state;
-        for (let index = 0; index < 100; index++) {
+        for (let index = 0; index < 1200; index++) {
             state = await (await fetch(taskUrl, { headers })).json();
             if (state.state === "completed" || state.state === "failed") break;
             await new Promise(resolve => setTimeout(resolve, 10));
         }
         assert.equal(state.state, "completed", state.error);
         assert.equal(receivedLength, String(body.length));
+        assert.equal(pollHeaders.authorization, "Bearer fixture-token");
+        assert.equal(pollHeaders["content-length"], undefined);
+        assert.equal(pollHeaders["content-type"], undefined);
+        assert.equal(pollHeaders["idempotency-key"], undefined);
         assert.equal(mediaAuthorization, undefined);
         assert.equal(await (await fetch(taskUrl + "/result", { headers })).text(), "fixture-video");
     } finally {

@@ -5,6 +5,8 @@ description: Implemented changes that still need manual verification
 
 # Pending Tests
 
+- Video task polling headers: after a multipart creation POST with exact Content-Length and Idempotency-Key, the Docker GET for the same task ID must keep provider authentication but omit POST-only length, type and idempotency headers. A simulated queued-to-succeeded task verifies polling and public-result download without another generation POST. Verify on Synology that a new task reaches success or failure instead of remaining loading; a container restart does not resume previously running tasks, so save any still-downloadable provider result before updating.
+
 - Docker plain-text error propagation: when an upstream video creation returns HTTP 429 with `上游模型维护，敬请期待`, the failed node and Info panel should show that text and disk task metadata should retain it. JSON string errors should also display; HTML and incomplete JSON are not echoed as messages. Paid POSTs are not retried. Verify the real Synology 429 after updating the image.
 
 - Multipart video relay: the Docker background task must forward the exact Content-Length, expose the provider's `code="0"` and terminal failure messages, and omit Bearer authentication when downloading a public result URL even on the API origin. `scripts/provider/seedance25-30s-multipart.js` follows the supplied contract: 30 seconds, supported ratios, JPG/PNG `images[]` file uploads, and prior staging in the user's COS. Proxy fixture tests passed; live TLS, COS, billing, creation, and retrieval remain unverified. This script requires an updated proxy image.

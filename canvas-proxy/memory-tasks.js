@@ -105,6 +105,8 @@ export function createMemoryTasks() {
             }
             // Opt in only for providers that require a fixed multipart length.
             if (req.headers["x-canvas-require-content-length"] === "1") headers["content-length"] = String(task.bytes - OVERHEAD);
+            const pollHeaders = { ...headers };
+            for (const name of ["content-length", "content-type", "transfer-encoding", "idempotency-key"]) delete pollHeaders[name];
             task.publicResult = req.headers["x-canvas-video-public-result"] === "1";
             const body = Readable.from(task.chunks);
             task.state = "running";
@@ -151,7 +153,7 @@ export function createMemoryTasks() {
                         const initial = JSON.parse((await payload()).toString("utf8"));
                         task.upstreamId = initial?.id || initial?.task_id || initial?.data?.id || initial?.data?.task_id || initial?.name;
                         if (storage) await storage.save(task);
-                        const result = await resolveVideoTask(protocol, initial, target, headers, task, read);
+                        const result = await resolveVideoTask(protocol, initial, target, pollHeaders, task, read);
                         if (result.data) {
                             bytes -= task.bytes - OVERHEAD;
                             task.bytes = OVERHEAD;
