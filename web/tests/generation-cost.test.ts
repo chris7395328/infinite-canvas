@@ -3,11 +3,16 @@ import type { GenerationCostRecord } from "../src/types/generation-cost";
 import type { CanvasNodeData } from "../src/types/canvas";
 
 const data = new Map<string, unknown>();
-mock.module("localforage", () => ({ default: { config: () => {}, createInstance: () => ({
-    getItem: async (key: string) => structuredClone(data.get(key) ?? null),
-    setItem: async (key: string, value: unknown) => { data.set(key, structuredClone(value)); },
-    iterate: async (callback: (value: unknown) => void) => { for (const value of data.values()) callback(structuredClone(value)); },
-}) } }));
+const stores = new Map<string, Map<string, unknown>>([["generation_costs", data]]);
+mock.module("localforage", () => ({ default: { config: () => {}, createInstance: ({ storeName }: { storeName: string }) => {
+    if (!stores.has(storeName)) stores.set(storeName, new Map());
+    const store = stores.get(storeName)!;
+    return {
+        getItem: async (key: string) => structuredClone(store.get(key) ?? null),
+        setItem: async (key: string, value: unknown) => { store.set(key, structuredClone(value)); },
+        iterate: async (callback: (value: unknown) => void) => { for (const value of store.values()) callback(structuredClone(value)); },
+    };
+} } }));
 const originalStorage = Object.getOwnPropertyDescriptor(globalThis, "localStorage");
 Object.defineProperty(globalThis, "localStorage", { configurable: true, value: { getItem: () => null, setItem: () => {}, removeItem: () => {} } });
 afterAll(() => {
@@ -121,4 +126,18 @@ test("the outgoing request sees a pending estimate before being sent", async () 
     try {
         await backgroundFetch("https://relay.example.com/generate", { method: "POST", body: "{}" }, { projectId: "transport", nodeId: "node", billing: snapshot, snapshot: () => node("success") }, "openai-video");
     } finally { globalThis.fetch = originalFetch; }
+});
+
+test("uploading a replacement file into a node cannot confirm the original generation's estimate", async () => {
+    const { acknowledgeSavedBackgroundTasks } = await import("../src/services/api/background-tasks");
+    const snapshot = createGenerationCostSnapshot(config, "replacement", "node");
+    await recordGenerationSubmitted(snapshot);
+    const uploaded: CanvasNodeData = { ...node("success"), metadata: { status: "success", content: "blob:manual-upload", storageKey: "video:manual-upload" } };
+    stores.get("background_tasks")!.set("task", { id: "task", key: "key", base: "https://proxy.example.com", projectId: "replacement", nodeId: "node", kind: "openai-video", billing: snapshot, snapshot: uploaded });
+    const originalFetch = globalThis.fetch;
+    globalThis.fetch = (async () => new Response("{}", { status: 200 })) as typeof fetch;
+    try {
+        await acknowledgeSavedBackgroundTasks("replacement", [uploaded]);
+        expect(record(snapshot.id).status).toBe("pending");
+    } finally { globalThis.fetch = originalFetch; stores.get("background_tasks")!.clear(); }
 });

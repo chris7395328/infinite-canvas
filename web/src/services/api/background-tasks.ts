@@ -4,7 +4,7 @@ import { normalizeLocalProxyUrl, useConfigStore } from "@/stores/use-config-stor
 import type { CanvasConnection, CanvasNodeData } from "@/types/canvas";
 import { flushCanvasStore, useCanvasStore } from "@/stores/canvas/use-canvas-store";
 import type { GenerationCostSnapshot } from "@/types/generation-cost";
-import { recordGenerationSubmitted, recordReceivedGeneration } from "@/services/generation-cost";
+import { recordGenerationSubmitted } from "@/services/generation-cost";
 import { useGenerationCostStore } from "@/stores/use-generation-cost-store";
 
 export type BackgroundPlugin = { capability: "audio" | "image" | "text" | "video"; script: string; prompt?: string; images?: string[]; videos?: File[]; audios?: File[]; messages?: unknown[]; params?: Record<string, unknown>; index: number };
@@ -130,7 +130,6 @@ export async function acknowledgeSavedBackgroundTasks(projectId: string, nodes: 
         if (!task.kind.endsWith("text") && !("storageKey" in item && item.storageKey)) continue;
         acknowledging.add(task.id);
         try {
-            await recordReceivedGeneration(task.billing, item);
             if (!task.released) await acknowledgeBackgroundTask(task, task.saved || node);
             const persisted = useCanvasStore.getState().projects.find((project) => project.id === projectId)?.nodes.find((entry) => entry.id === node.id);
             const persistedItem = task.itemId ? (persisted?.metadata?.images?.find((entry) => entry.id === task.itemId) || persisted?.metadata?.texts?.find((entry) => entry.id === task.itemId)) : persisted?.metadata;
