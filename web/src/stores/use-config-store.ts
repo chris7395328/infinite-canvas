@@ -6,6 +6,8 @@ import { nanoid } from "nanoid";
 import i18n from "@/i18n";
 import { DEPLOYED_PROXY_URL } from "@/constant/runtime-config";
 import { normalizeImageQualityForModel } from "@/lib/image-quality";
+import { normalizeModelPrice } from "@/lib/generation-cost";
+import type { ModelPrice } from "@/types/generation-cost";
 
 export type ApiCallFormat = "openai" | "gemini" | "volcengine";
 export type ModelCapability = "image" | "video" | "text" | "audio";
@@ -15,6 +17,7 @@ export type ChannelModel = {
     name: string;
     capability: ModelCapability;
     script?: string;
+    price?: ModelPrice;
     seedanceVersion?: "2.0" | "2.5";
 };
 
@@ -102,7 +105,7 @@ export type WebdavSyncConfig = {
     directory: string;
     lastSyncedAt: string;
 };
-export type ConfigTabKey = "channels" | "seedance" | "local-proxy" | "preferences" | "prompt-sources" | "webdav" | "local-storage";
+export type ConfigTabKey = "channels" | "seedance" | "local-proxy" | "preferences" | "prompt-sources" | "webdav" | "local-storage" | "cost-statistics";
 
 export type ChannelCredentialsImportResult = {
     status: "created" | "updated" | "missing-base-url" | "invalid-base-url";
@@ -378,7 +381,8 @@ export function normalizeChannelModels(models: Array<string | ChannelModel> | un
         const capability = typeof item === "string" ? guessCapability(name) : item.capability || guessCapability(name);
         const script = typeof item === "string" ? undefined : item.script?.trim() || undefined;
         const seedanceVersion = typeof item === "string" ? undefined : item.seedanceVersion;
-        result.push({ name, capability, script, ...(seedanceVersion === "2.0" || seedanceVersion === "2.5" ? { seedanceVersion } : {}) });
+        const price = typeof item === "string" ? undefined : normalizeModelPrice(item.price);
+        result.push({ name, capability, script, ...(price ? { price } : {}), ...(seedanceVersion === "2.0" || seedanceVersion === "2.5" ? { seedanceVersion } : {}) });
     }
     return result;
 }

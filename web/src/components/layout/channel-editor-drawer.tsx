@@ -1,11 +1,12 @@
 import { Button, Drawer, Input, Segmented, Select, Space } from "antd";
-import { ListPlus, Trash2 } from "lucide-react";
+import { CircleDollarSign, ListPlus, Trash2 } from "lucide-react";
 import { useEffect, useState } from "react";
 import { useTranslation } from "react-i18next";
 
 import { defaultBaseUrlForApiFormat, guessCapability, normalizeChannelModels, type ApiCallFormat, type ChannelModel, type ModelCapability, type ModelChannel } from "@/stores/use-config-store";
 import { ModelScriptEditor } from "./model-script-editor";
 import { ModelSelectModal } from "./model-select-modal";
+import { ModelPriceEditor } from "./model-price-editor";
 
 type ScriptTarget = { name: string; capability: ModelCapability; value: string };
 
@@ -14,6 +15,7 @@ export function ChannelEditorDrawer({ open, channel, onSave, onClose }: { open: 
     const [draft, setDraft] = useState<ModelChannel | null>(channel);
     const [selectOpen, setSelectOpen] = useState(false);
     const [scriptTarget, setScriptTarget] = useState<ScriptTarget | null>(null);
+    const [priceTarget, setPriceTarget] = useState<ChannelModel | null>(null);
     const apiFormatOptions: Array<{ label: string; value: ApiCallFormat }> = [
         { label: "OpenAI", value: "openai" },
         { label: "Gemini", value: "gemini" },
@@ -104,9 +106,12 @@ export function ChannelEditorDrawer({ open, channel, onSave, onClose }: { open: 
                             </span>
                             <div className="flex shrink-0 items-center gap-2">
                                 <Segmented size="small" value={model.capability} options={capabilityOptions} onChange={(value) => setCapability(model.name, value as ModelCapability)} />
-                                {draft.apiFormat === "volcengine" && model.capability === "video" ? <Select size="small" className="w-[112px]" aria-label={`${model.name} Seedance 版本`} value={model.seedanceVersion || "auto"} options={[{ value: "auto", label: "自动识别" }, { value: "2.0", label: "Seedance 2.0" }, { value: "2.5", label: "Seedance 2.5" }]} onChange={(value) => setSeedanceVersion(model.name, value)} /> : null}
+                                {draft.apiFormat === "volcengine" && model.capability === "video" ? <Select<"auto" | "2.0" | "2.5"> size="small" className="w-[112px]" aria-label={`${model.name} Seedance 版本`} value={model.seedanceVersion || "auto"} options={[{ value: "auto", label: "自动识别" }, { value: "2.0", label: "Seedance 2.0" }, { value: "2.5", label: "Seedance 2.5" }]} onChange={(value) => setSeedanceVersion(model.name, value)} /> : null}
                                 <Button size="small" type={model.script ? "primary" : "default"} ghost={Boolean(model.script)} onClick={() => setScriptTarget({ name: model.name, capability: model.capability, value: model.script || "" })}>
                                     {t(model.script ? "config.channelEditor.scriptReady" : "config.channelEditor.script")}
+                                </Button>
+                                <Button size="small" icon={<CircleDollarSign className="size-3.5" />} onClick={() => setPriceTarget(model)}>
+                                    {model.price ? `${model.price.amount}元/${model.price.unit === "second" ? "秒" : "次"}` : "金额设置"}
                                 </Button>
                                 <Button size="small" danger type="text" icon={<Trash2 className="size-3.5" />} onClick={() => removeModel(model.name)} />
                             </div>
@@ -118,6 +123,7 @@ export function ChannelEditorDrawer({ open, channel, onSave, onClose }: { open: 
             </div>
 
             <ModelSelectModal open={selectOpen} channel={draft} selectedNames={draft.models.map((model) => model.name)} onConfirm={applySelection} onClose={() => setSelectOpen(false)} />
+            {priceTarget ? <ModelPriceEditor key={priceTarget.name} model={priceTarget} onSave={(price) => setModels(draft.models.map((model) => model.name === priceTarget.name ? { ...model, price } : model))} onClose={() => setPriceTarget(null)} /> : null}
 
             <ModelScriptEditor
                 open={Boolean(scriptTarget)}

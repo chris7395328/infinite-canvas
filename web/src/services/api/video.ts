@@ -12,6 +12,7 @@ import { pollMoyuSeedanceTask } from "./moyu-video";
 import type { ReferenceImage } from "@/types/image";
 import type { ReferenceAudio, ReferenceVideo } from "@/types/media";
 import { backgroundPost, type BackgroundContext, type BackgroundKind } from "./background-tasks";
+import { recordGenerationSubmitted } from "@/services/generation-cost";
 import { useConfigStore } from "@/stores/use-config-store";
 import { normalizeVideoResultBlob } from "@/lib/video-result-blob";
 
@@ -192,6 +193,7 @@ async function createOpenAIVideoTask(config: AiConfig, model: string, prompt: st
     try {
         const cached = await backgroundVideo(model, aiApiUrl(config, "/videos"), body, aiHeaders(config), options, "openai-video");
         if (cached) return cached;
+        await recordGenerationSubmitted(options?.background?.billing);
         const created = unwrapVideoResponse((await axios.post<ApiVideoResponse>(aiApiUrl(config, "/videos"), body, { headers: aiHeaders(config), signal: options?.signal })).data);
         if (!created.id) throw new Error(apiText("noVideoTaskId"));
         return { id: created.id, provider: "openai", model };
@@ -328,6 +330,7 @@ async function createOmniVideoTask(config: AiConfig, model: string, prompt: stri
         };
         const cached = await backgroundVideo(model, omniVideoUrl(config), body, geminiVideoHeaders(config), options, "omni-video");
         if (cached) return cached;
+        await recordGenerationSubmitted(options?.background?.billing);
         const interaction = (await axios.post<OmniInteraction>(omniVideoUrl(config), body, { headers: geminiVideoHeaders(config), signal: options?.signal })).data;
         if (interaction.error) throw new Error(interaction.error.message || "Omni generation failed");
         const output = omniVideoOutput(interaction);
@@ -383,6 +386,7 @@ async function createGeminiVideoTask(config: AiConfig, model: string, prompt: st
         };
         const cached = await backgroundVideo(model, geminiVideoUrl(config, model, "predictLongRunning"), body, geminiVideoHeaders(config), options, "gemini-video");
         if (cached) return cached;
+        await recordGenerationSubmitted(options?.background?.billing);
         const created = unwrapEnvelope((await axios.post<ApiEnvelope<GeminiVideoOperation>>(geminiVideoUrl(config, model, "predictLongRunning"), body, { headers: geminiVideoHeaders(config), signal: options?.signal })).data, apiText("noVideoTask"));
         if (!created.name) throw new Error(apiText("noVideoTaskId"));
         return { id: created.name, provider: "gemini", model };

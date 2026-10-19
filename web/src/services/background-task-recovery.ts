@@ -9,6 +9,12 @@ import { uploadImage } from "./image-storage";
 import { audioMetadata, imageMetadata, videoMetadata } from "@/lib/canvas/canvas-node-factory";
 import type { CanvasNodeData, CanvasNodeImage, CanvasNodeText } from "@/types/canvas";
 import { normalizeVideoResultBlob } from "@/lib/video-result-blob";
+import { recordReceivedGeneration } from "./generation-cost";
+
+async function recordRecoveredCost(task: BackgroundTask, saved: CanvasNodeData) {
+    const result = task.itemId ? saved.metadata?.images?.find((item) => item.id === task.itemId) || saved.metadata?.texts?.find((item) => item.id === task.itemId) : saved.metadata;
+    if (result?.status === "success") await recordReceivedGeneration(task.billing, result);
+}
 
 // Merge only this task's slot: parallel image/text tasks must not overwrite each other.
 export function applyBackgroundResult(node: CanvasNodeData, task: BackgroundTask, saved: CanvasNodeData): CanvasNodeData {
@@ -30,7 +36,10 @@ export function applyBackgroundResult(node: CanvasNodeData, task: BackgroundTask
 }
 
 export async function recoverBackgroundResult(task: BackgroundTask, node: CanvasNodeData, signal: AbortSignal) {
-    if (task.saved) return applyBackgroundResult(node, task, task.saved);
+    if (task.saved) {
+        await recordRecoveredCost(task, task.saved);
+        return applyBackgroundResult(node, task, task.saved);
+    }
     let pluginResult: unknown;
     if (task.plugin) {
         const plugin = task.plugin;
@@ -79,6 +88,7 @@ export async function recoverBackgroundResult(task: BackgroundTask, node: Canvas
         saved = { ...node, metadata: { ...node.metadata, content, status: "success", ...(task.itemId ? { texts: [text], primaryTextId: text.id } : {}), errorDetails: undefined } };
     }
     signal.throwIfAborted();
+    await recordRecoveredCost(task, saved);
     await acknowledgeBackgroundTask(task, saved);
     return applyBackgroundResult(node, task, saved);
 }

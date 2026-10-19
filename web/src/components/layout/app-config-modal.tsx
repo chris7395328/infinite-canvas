@@ -13,6 +13,7 @@ import { ConfigLocalProxy } from "@/components/layout/config-local-proxy";
 import { ConfigPromptSources } from "@/components/layout/config-prompt-sources";
 import { ConfigLocalStorage } from "@/components/layout/config-local-storage";
 import { ConfigSeedance } from "@/components/layout/config-seedance";
+import { ConfigCostStatistics } from "@/components/layout/config-cost-statistics";
 import type { AppLocale } from "@/i18n";
 import { exportAppConfig, importAppConfig } from "@/services/config-file";
 import { syncAppDataToWebdav, type AppSyncDomainKey, type AppSyncProgressEvent } from "@/services/app-sync";
@@ -233,6 +234,11 @@ export function AppConfigPanel({ showDoneButton = false, initialTab = "channels"
                         key: "seedance",
                         label: t("config.tabs.seedance"),
                         children: <ConfigSeedance onAddModels={addSeedanceModels} />,
+                    },
+                    {
+                        key: "cost-statistics",
+                        label: "费用统计",
+                        children: <ConfigCostStatistics active={activeTab === "cost-statistics"} />,
                     },
                     {
                         key: "local-proxy",

@@ -32,6 +32,7 @@ export function copyNodeMetadata(metadata: CanvasNodeMetadata | undefined): Canv
     return {
         ...metadata,
         generationRecovery: undefined,
+        generationCost: undefined,
         videoTaskId: undefined,
         videoTaskProvider: undefined,
         seedanceDraftTaskId: undefined,

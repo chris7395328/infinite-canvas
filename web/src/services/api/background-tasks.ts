@@ -3,13 +3,17 @@ import localforage from "localforage";
 import { normalizeLocalProxyUrl, useConfigStore } from "@/stores/use-config-store";
 import type { CanvasConnection, CanvasNodeData } from "@/types/canvas";
 import { flushCanvasStore, useCanvasStore } from "@/stores/canvas/use-canvas-store";
+import type { GenerationCostSnapshot } from "@/types/generation-cost";
+import { recordGenerationSubmitted, recordReceivedGeneration } from "@/services/generation-cost";
+import { useGenerationCostStore } from "@/stores/use-generation-cost-store";
 
 export type BackgroundPlugin = { capability: "audio" | "image" | "text" | "video"; script: string; prompt?: string; images?: string[]; videos?: File[]; audios?: File[]; messages?: unknown[]; params?: Record<string, unknown>; index: number };
-export type BackgroundContext = { projectId: string; nodeId: string; itemId?: string; snapshot: () => CanvasNodeData | undefined; connections?: () => CanvasConnection[]; plugin?: BackgroundPlugin; replay?: boolean };
+export type BackgroundContext = { projectId: string; nodeId: string; itemId?: string; billing?: GenerationCostSnapshot; snapshot: () => CanvasNodeData | undefined; connections?: () => CanvasConnection[]; plugin?: BackgroundPlugin; replay?: boolean };
 export type BackgroundKind = "gemini-audio" | "openai-audio" | "gemini-image" | "openai-image" | "gemini-text" | "openai-text" | "plugin-audio" | "plugin-image" | "plugin-text" | "plugin-video" | "openai-video" | "gemini-video" | "omni-video" | "moyu-video" | "xing933-video";
 export type BackgroundTask = {
     id: string; key: string; base: string; projectId: string; nodeId: string; itemId?: string;
     kind: BackgroundKind; format?: string; snapshot: CanvasNodeData; connections?: CanvasConnection[]; saved?: CanvasNodeData; released?: boolean; plugin?: BackgroundPlugin;
+    billing?: GenerationCostSnapshot;
 };
 const journal = localforage.createInstance({ name: "infinite-canvas", storeName: "background_tasks" });
 export async function backgroundTasks(projectId?: string) {
@@ -59,7 +63,10 @@ export async function backgroundFetch(url: string, init: RequestInit, context: B
         if (!receipt) throw new Error("原脚本的这一步尚未提交或凭据已丢失；为避免重复计费，已停止，未发起新的生成请求。");
         return waitBackgroundTask(receipt, init.signal || undefined);
     }
-    if (!context || !config.proxyEnabled) return fetch(url, init);
+    if (!context || !config.proxyEnabled) {
+        if (init.method?.toUpperCase() === "POST") await recordGenerationSubmitted(context?.billing);
+        return fetch(url, init);
+    }
     const base = normalizeLocalProxyUrl(config.proxyUrl);
     if (!base) throw new Error("后台生成需要配置本地代理地址。");
     const absoluteBase = new URL(base, window.location.href).href.replace(/\/$/, "");
@@ -78,7 +85,8 @@ export async function backgroundFetch(url: string, init: RequestInit, context: B
     await journal.keys();
     const snapshot = context.snapshot();
     if (!snapshot) throw new Error("生成节点尚未保存，未提交后台任务。");
-    const task: BackgroundTask = { id: crypto.randomUUID(), key: crypto.randomUUID(), base: absoluteBase, projectId: context.projectId, nodeId: context.nodeId, itemId: context.itemId, kind, format, snapshot, connections: context.connections?.(), plugin: context.plugin };
+    const task: BackgroundTask = { id: crypto.randomUUID(), key: crypto.randomUUID(), base: absoluteBase, projectId: context.projectId, nodeId: context.nodeId, itemId: context.itemId, kind, format, snapshot, connections: context.connections?.(), plugin: context.plugin, billing: context.billing };
+    await recordGenerationSubmitted(task.billing);
     await journal.setItem(task.id, task);
     window.dispatchEvent(new CustomEvent("canvas-background-task", { detail: { projectId: context.projectId, nodeId: context.nodeId } }));
     const outgoing = new Headers(request.headers);
@@ -91,7 +99,10 @@ export async function backgroundFetch(url: string, init: RequestInit, context: B
 }
 
 export async function backgroundPost<T>(url: string, body: unknown, options: AxiosRequestConfig, context: BackgroundContext | undefined, kind: BackgroundKind, format?: string): Promise<{ data: T }> {
-    if (!context || !useConfigStore.getState().config.proxyEnabled) return axios.post<T>(url, body, options);
+    if (!context || !useConfigStore.getState().config.proxyEnabled) {
+        await recordGenerationSubmitted(context?.billing);
+        return axios.post<T>(url, body, options);
+    }
     const target = axios.getUri({ url, params: options.params });
     const rawBody = body instanceof FormData || body instanceof Blob || body instanceof ArrayBuffer || body instanceof URLSearchParams || typeof body === "string" ? body : JSON.stringify(body);
     const response = await checked(await backgroundFetch(target, { method: "POST", headers: options.headers as HeadersInit, body: rawBody, signal: options.signal as AbortSignal | undefined }, context, kind, format));
@@ -119,6 +130,7 @@ export async function acknowledgeSavedBackgroundTasks(projectId: string, nodes: 
         if (!task.kind.endsWith("text") && !("storageKey" in item && item.storageKey)) continue;
         acknowledging.add(task.id);
         try {
+            await recordReceivedGeneration(task.billing, item);
             if (!task.released) await acknowledgeBackgroundTask(task, task.saved || node);
             const persisted = useCanvasStore.getState().projects.find((project) => project.id === projectId)?.nodes.find((entry) => entry.id === node.id);
             const persistedItem = task.itemId ? (persisted?.metadata?.images?.find((entry) => entry.id === task.itemId) || persisted?.metadata?.texts?.find((entry) => entry.id === task.itemId)) : persisted?.metadata;
@@ -141,9 +153,12 @@ function serializeTask<T>(id: string, operation: () => Promise<T>): Promise<T> {
 }
 
 export async function discardBackgroundTasks(projectId: string, nodeIds: Set<string>) {
+    const costs = useGenerationCostStore.getState();
+    for (const cost of costs.records) if (cost.projectId === projectId && nodeIds.has(cost.nodeId) && cost.status === "pending") await costs.write(cost, "cancelled");
     for (const task of await backgroundTasks(projectId)) if (nodeIds.has(task.nodeId)) {
         discarded.add(task.id);
         await serializeTask(task.id, async () => {
+            if (task.billing) await useGenerationCostStore.getState().write(task.billing, "cancelled");
             await forgetBackgroundTask(task.id);
             await checked(await fetch(address(task), { method: "DELETE", headers: taskHeaders(task) }).then((response) => response.status === 404 ? new Response(null, { status: 204 }) : response));
         });
