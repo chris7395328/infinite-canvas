@@ -43,6 +43,8 @@ export function VideoSettingsPanel({ config, onConfigChange, theme, showTitle = 
     const isSeedance25 = isVolcengineSeedance25(config);
     const modelName = modelOptionName(config.model).replace(/^models\//, "").toLowerCase();
     const channel = resolveModelRequestConfig(config, config.model);
+    const isVod = channel.apiFormat === "tencent-vod";
+    const isVod15 = isVod && modelName === "1.5-pro";
     const seedance = channel.seedance;
     const isOfficialArk = channel.apiFormat === "volcengine" || /ark\.cn-beijing\.volces\.com\/api\/v3/i.test(channel.baseUrl);
     const isSeedance20 = isOfficialArk && seedanceModelVersion(config, config.model) === "2.0";
@@ -50,15 +52,15 @@ export function VideoSettingsPanel({ config, onConfigChange, theme, showTitle = 
     const isOmni = channel.apiFormat === "gemini" && /^https:\/\/generativelanguage\.googleapis\.com(?:\/|$)/i.test(channel.baseUrl) && /^gemini-omni-/.test(modelName);
     const isDraft = isSeedance25 && seedance.draft;
     const minSeconds = isOmni ? 3 : VIDEO_SECONDS_MIN;
-    const maxSeconds = isOmni ? 10 : isSeedance20 ? 15 : VIDEO_SECONDS_MAX;
+    const maxSeconds = isOmni ? 10 : isSeedance20 || isVod && !isVod15 ? 15 : VIDEO_SECONDS_MAX;
     const seconds = Math.round(Math.max(minSeconds, Math.min(maxSeconds, Number(config.videoSeconds) || 6)));
     const videoMode = normalizeVideoModeValue(config.videoMode);
     const omniResolutionOptions = [{ value: "360", label: "360p" }, { value: "720", label: "720p" }, { value: "1080", label: "1080p" }, { value: "2160", label: "4K" }];
-    const allowedResolutions = isOmni ? omniResolutionOptions : isSeedance20Fast ? resolutionOptions.filter((item) => item.value !== "1080") : resolutionOptions;
+    const allowedResolutions = isVod ? [{ value: "720", label: "720P" }, { value: "1080", label: "1080P" }, { value: "1440", label: "2K" }, { value: "2160", label: "4K" }] : isOmni ? omniResolutionOptions : isSeedance20Fast ? resolutionOptions.filter((item) => item.value !== "1080") : resolutionOptions;
     const requestedResolution = parseVideoResolution(config.vquality);
     const resolution = isDraft ? "480" : allowedResolutions.some((item) => item.value === requestedResolution) ? requestedResolution : "720";
     const selectedRatio = inferVideoRatio(config.size || "auto");
-    const fixedDimensions = isOmni || isSeedance20 || isSeedance25;
+    const fixedDimensions = isVod || isOmni || isSeedance20 || isSeedance25;
     const dimensions = readVideoDimensions(fixedDimensions ? computeVideoSize(resolution, selectedRatio === "auto" ? "16:9" : selectedRatio) : config.size || "auto", resolution, selectedRatio);
     const applySize = (nextResolution: string, ratio: string) => {
         onConfigChange("vquality", nextResolution);
@@ -69,22 +71,35 @@ export function VideoSettingsPanel({ config, onConfigChange, theme, showTitle = 
         else applySize(nextResolution, selectedRatio);
     };
     useEffect(() => {
-        const smartEdit = isSeedance25 && seedance.taskType === "edit" && config.videoSeconds === "-1";
+        const smartEdit = (isVod || isSeedance25 && seedance.taskType === "edit") && config.videoSeconds === "-1";
         if (!smartEdit && String(seconds) !== String(config.videoSeconds)) onConfigChange("videoSeconds", String(seconds));
         if (resolution !== requestedResolution) onConfigChange("vquality", resolution);
         // MOV is 2.5-only. Clear a persisted 2.5 choice when switching to Seedance 2.0.
         if (isSeedance20 && seedance.outputFormat !== "mp4") onConfigChange("seedanceOutputFormat", "mp4");
-        const adaptive = isSeedance25 && ["extend", "edit"].includes(seedance.taskType);
+        if (isVod && !isVod15 && ["edit", "extend"].includes(seedance.taskType)) onConfigChange("seedanceTaskType", "reference");
+        if (isVod15 && ["edit", "extend"].includes(seedance.taskType) && config.size !== "auto") onConfigChange("size", "auto");
+        if (isVod15 && seedance.taskType === "edit" && config.videoSeconds !== "-1") onConfigChange("videoSeconds", "-1");
+        const adaptive = (isSeedance25 || isVod15) && ["extend", "edit"].includes(seedance.taskType);
         if (!isDraft && !adaptive && selectedRatio !== "auto" && (fixedDimensions || resolution !== requestedResolution)) {
             const nextSize = computeVideoSize(resolution, selectedRatio);
             if (config.size !== nextSize) onConfigChange("size", nextSize);
         }
-    }, [config.model, config.size, config.videoSeconds, config.vquality, seedance.taskType, seedance.outputFormat, seconds, isDraft, isSeedance25, fixedDimensions, resolution, requestedResolution, selectedRatio, onConfigChange]);
+    }, [config.model, config.size, config.videoSeconds, config.vquality, seedance.taskType, seedance.outputFormat, seconds, isDraft, isSeedance25, isVod, isVod15, fixedDimensions, resolution, requestedResolution, selectedRatio, onConfigChange]);
 
     return (
         <ImageSettingsTheme theme={theme}>
             <div className={className} style={{ color: theme.node.text }} onMouseDown={(event) => event.stopPropagation()}>
                 {showTitle ? <div className="text-lg font-semibold">{t("settingsPanels.video.title")}</div> : null}
+                {isVod ? <SettingGroup title={`WAND-Vega ${modelName}`} color={theme.node.muted}>
+                    {isVod15 ? <div className="grid grid-cols-4 gap-2">{(Object.keys(seedanceTaskTypeLabels) as Array<keyof typeof seedanceTaskTypeLabels>).map((taskType) => <OptionPill key={taskType} selected={seedance.taskType === taskType} theme={theme} onClick={() => { onConfigChange("seedanceTaskType", taskType); if (["extend", "edit"].includes(taskType)) onConfigChange("size", "auto"); if (taskType === "edit") onConfigChange("videoSeconds", "-1"); }}>{seedanceTaskTypeLabels[taskType]}</OptionPill>)}</div> : null}
+                    <div className="flex flex-wrap gap-3 text-xs">
+                        <label className="flex items-center gap-2">生成音轨<Switch size="small" checked={config.videoGenerateAudio !== "false"} onChange={(value) => onConfigChange("videoGenerateAudio", String(value))} /></label>
+                        <label className="flex items-center gap-2">水印<Switch size="small" checked={config.videoWatermark === "true"} onChange={(value) => onConfigChange("videoWatermark", String(value))} /></label>
+                        <label className="flex items-center gap-2">返回尾帧<Switch size="small" checked={seedance.returnLastFrame} onChange={(value) => onConfigChange("seedanceReturnLastFrame", String(value))} /></label>
+                    </div>
+                    <label className="flex items-center gap-2 text-xs">Seed<input type="number" className="min-w-0 flex-1 rounded border bg-transparent p-2" value={seedance.seed} onMouseDown={(event) => event.stopPropagation()} onChange={(event) => onConfigChange("seedanceSeed", event.target.value)} /></label>
+                    <div className="text-xs" style={{ color: theme.node.muted }}>按VOD文档提供分辨率选项，具体版本权限以上游为准。返回尾帧由后台接收；当前画布只展示生成的视频，不自动新建尾帧图片节点。</div>
+                </SettingGroup> : null}
                 {isSeedance25 ? (
                     <SettingGroup title="Seedance 2.5" color={theme.node.muted}>
                         <div className="space-y-2.5">
@@ -149,11 +164,14 @@ export function VideoSettingsPanel({ config, onConfigChange, theme, showTitle = 
                     </div>
                 </SettingGroup>
                 <SettingGroup title={t("settingsPanels.video.seconds")} color={theme.node.muted}>
+                    {isVod ? <label className="mb-2 flex items-center gap-2 text-xs">自动时长<Switch size="small" checked={config.videoSeconds === "-1"} onChange={(value) => onConfigChange("videoSeconds", value ? "-1" : "6")} /></label> : null}
+                    {isVod && config.videoSeconds === "-1" ? <div className="text-xs">由模型决定；按秒计价暂不能估算费用。</div> :
                     <div className="flex items-center gap-3" onMouseDown={(event) => event.stopPropagation()}>
                         <Slider className="min-w-0 flex-1" min={minSeconds} max={maxSeconds} step={1} value={seconds} onChange={(value) => onConfigChange("videoSeconds", String(Array.isArray(value) ? value[0] : value))} />
                         <SecondsInput value={seconds} theme={theme} min={minSeconds} max={maxSeconds} onCommit={(value) => onConfigChange("videoSeconds", String(value))} />
                         <span className="shrink-0 text-sm" style={{ color: theme.node.muted }}>s</span>
                     </div>
+                    }
                 </SettingGroup>
                 <SettingGroup title={t("settingsPanels.video.mode")} color={theme.node.muted}>
                     <div className="grid grid-cols-2 gap-2.5">

@@ -3,6 +3,9 @@ import axios, { type AxiosRequestConfig } from "axios";
 import i18n from "@/i18n";
 import { buildApiUrl, normalizeLocalProxyUrl, withLocalProxy, type AiConfig, type ModelCapability } from "@/stores/use-config-store";
 import { backgroundFetch, backgroundPost, type BackgroundContext } from "./background-tasks";
+import tencentVodScript from "./tencent-vod-script.js?raw";
+
+export const getTencentVodScript = () => tencentVodScript.trim();
 
 type RequestOptions = { signal?: AbortSignal; nextBackground?: () => BackgroundContext | undefined };
 
@@ -144,6 +147,7 @@ export async function runModelPlugin<T = unknown>(args: RunPluginArgs): Promise<
         "systemPrompt",
         "reasoningEffort",
         "seedance",
+        "tencentVod",
         "http",
         "request",
         "poll",
@@ -167,6 +171,7 @@ export async function runModelPlugin<T = unknown>(args: RunPluginArgs): Promise<
             config.systemPrompt || "",
             config.reasoningEffort,
             { ...config.seedance, bridgeUrl: normalizeLocalProxyUrl(config.seedance.bridgeUrl), apiBaseUrl: config.baseUrl },
+            config.tencentVod,
             http,
             request,
             poll,
@@ -200,6 +205,7 @@ export function getPluginVariables(): PluginVariable[] {
         { name: "systemPrompt", type: "string", desc: i18n.t("modelPlugin.variables.systemPrompt") },
         { name: "reasoningEffort", type: '"auto" | "low" | "medium" | "high" | "xhigh"', desc: i18n.t("modelPlugin.variables.reasoningEffort"), capabilities: ["text"] },
         { name: "seedance", type: "object", desc: "火山方舟 Seedance 本地 bridge、私域素材库和 COS 配置", capabilities: ["video"] },
+        { name: "tencentVod", type: "object", desc: "当前腾讯VOD渠道的凭据、SubAppId及素材设置，仅在用户明确生成时发送给自己的代理", capabilities: ["video"] },
         { name: "http", type: "object", desc: i18n.t("modelPlugin.variables.http") },
         { name: "request", type: "function", desc: i18n.t("modelPlugin.variables.request") },
         { name: "poll", type: "function", desc: i18n.t("modelPlugin.variables.poll") },

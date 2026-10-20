@@ -36,7 +36,10 @@ jobs:
           bun install
           bun test tests/canvas-focus-viewport.test.ts tests/model-selection.test.ts tests/video-result-blob.test.ts
           bun test tests/generation-cost.test.ts
-          node --test ../canvas-proxy/task-storage.test.js
+          bun test tests/tencent-vod.test.ts
+          cd ../canvas-proxy && bun install --frozen-lockfile
+          node --test tencent-vod.test.js
+          node --test task-storage.test.js
       - uses: docker/setup-buildx-action@v3
       - uses: docker/build-push-action@v6
         with:

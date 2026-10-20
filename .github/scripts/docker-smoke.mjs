@@ -11,6 +11,7 @@ assert.match(config, /CANVAS_PROXY_PATH: "\/canvas-proxy"/);
 const identity = await (await fetch(`${base}/canvas-proxy/`)).json();
 assert.equal(identity.proxy, "@basketikun/canvas-proxy");
 assert.equal(identity.memoryTasks, 2);
+assert.equal(identity.tencentVod, 1);
 assert.equal(identity.taskStorage, "disk");
 
 // An isolated fixture verifies both proxy hops without calling providers or using credentials.

@@ -24,7 +24,7 @@ export function responseError(buffer) {
     return detail.replace(/[\u0000-\u001f\u007f]+/g, " ").replace(/(Bearer\s+)\S+/gi, "$1[已隐藏]").trim();
 }
 
-export function createMemoryTasks() {
+export function createMemoryTasks({ generateVod } = {}) {
     const tasks = new Map();
     const storage = process.env.CANVAS_TASK_DIR ? createTaskStorage(process.env.CANVAS_TASK_DIR) : null;
     const ready = storage ? storage.load().then(items => {
@@ -84,10 +84,12 @@ export function createMemoryTasks() {
             let target;
             try {
                 const rawTarget = String(req.headers["x-canvas-target-url"] || "");
-                target = new URL(rawTarget === "/seedance/video" ? `http://127.0.0.1:${req.socket.localPort}/seedance/video` : rawTarget);
+                target = new URL(["/seedance/video", "/tencent-vod/video"].includes(rawTarget) ? `http://127.0.0.1:${req.socket.localPort}${rawTarget}` : rawTarget);
                 if (!["http:", "https:"].includes(target.protocol) || target.username || target.password) throw new Error();
             } catch { json(res, 400, { error: "无效的上游地址" }); return; }
             const protocol = req.headers["x-canvas-video-protocol"];
+            const vod = req.headers["x-canvas-target-url"] === "/tencent-vod/video";
+            if (vod && !generateVod) { req.resume(); json(res, 400, { error: "代理不支持腾讯VOD，请更新proxy；尚未提交生成。" }); return; }
             if (protocol && !["openai", "gemini", "omni", "moyu", "json-video", "xing933"].includes(protocol)) { req.resume(); json(res, 400, { error: "未知视频任务协议，未提交生成。" }); return; }
             task = { id, key: digest(token), state: "uploading", createdAt: Date.now(), bytes: 0, chunks: [], controller: new AbortController() };
             tasks.set(id, task);
@@ -148,12 +150,25 @@ export function createMemoryTasks() {
                 try {
                     // Native HTTP avoids fetch's implicit headers timeout for long synchronous generation.
                     // Running tasks have no local deadline; POST is sent exactly once.
-                    await collect(await request(target, "POST", headers, body));
-                    if (protocol && task.status >= 200 && task.status < 300) {
+                    let result;
+                    if (vod) {
+                        const input = JSON.parse(Buffer.concat(task.chunks).toString("utf8"));
+                        bytes -= task.bytes - OVERHEAD;
+                        task.bytes = OVERHEAD;
+                        task.chunks = [];
+                        try { result = await generateVod(input, { signal: task.controller.signal, onTask: async (upstreamId) => { task.upstreamId = upstreamId; if (storage) await storage.save(task); }, onWarning: (warning) => { task.warning = warning; } }); }
+                        catch (error) {
+                            for (const value of [input.tencentVod?.secretId, input.tencentVod?.secretKey, input.cos?.cosSecretId, input.cos?.cosSecretKey]) if (value) error.message = error.message.replaceAll(value, "[已隐藏]");
+                            throw error;
+                        }
+                    } else await collect(await request(target, "POST", headers, body));
+                    if (!vod && protocol && task.status >= 200 && task.status < 300) {
                         const initial = JSON.parse((await payload()).toString("utf8"));
                         task.upstreamId = initial?.id || initial?.task_id || initial?.data?.id || initial?.data?.task_id || initial?.name;
                         if (storage) await storage.save(task);
-                        const result = await resolveVideoTask(protocol, initial, target, pollHeaders, task, read);
+                        result = await resolveVideoTask(protocol, initial, target, pollHeaders, task, read);
+                    }
+                    if (result) {
                         if (result.data) {
                             bytes -= task.bytes - OVERHEAD;
                             task.bytes = OVERHEAD;

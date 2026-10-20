@@ -10,10 +10,16 @@ COPY web ./
 RUN bun run build
 
 # 同一个镜像分别运行 Compose 的前端与代理服务。
+FROM oven/bun:1.3.13 AS proxy-deps
+WORKDIR /app/canvas-proxy
+COPY canvas-proxy/package.json canvas-proxy/bun.lock ./
+RUN bun install --production --frozen-lockfile
+
 FROM nginx:1.27-alpine
 
 RUN apk add --no-cache nodejs
-COPY canvas-proxy/index.js canvas-proxy/memory-tasks.js canvas-proxy/provider-error.js canvas-proxy/video-tasks.js canvas-proxy/task-storage.js canvas-proxy/package.json /opt/canvas-proxy/
+COPY --from=proxy-deps /app/canvas-proxy/node_modules /opt/canvas-proxy/node_modules
+COPY canvas-proxy/index.js canvas-proxy/memory-tasks.js canvas-proxy/provider-error.js canvas-proxy/video-tasks.js canvas-proxy/task-storage.js canvas-proxy/tencent-vod.js canvas-proxy/package.json /opt/canvas-proxy/
 COPY --from=web-build /app/web/dist /usr/share/nginx/html
 COPY nginx.conf /etc/nginx/conf.d/default.conf
 COPY web/docker-entrypoint.sh /docker-entrypoint.d/40-runtime-config.sh

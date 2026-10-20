@@ -18,6 +18,7 @@ export function ModelSelectModal({ open, channel, selectedNames, onConfirm, onCl
     const [manual, setManual] = useState("");
     const [loading, setLoading] = useState(false);
     const isPixmax = /^https:\/\/openai\.pixmax\.ai\/ai-api\/volcengine\/api-key(?:\/api\/v3)?\/?$/i.test(channel?.baseUrl || "");
+    const isVod = channel?.apiFormat === "tencent-vod";
 
     useEffect(() => {
         if (!open) return;
@@ -62,7 +63,7 @@ export function ModelSelectModal({ open, channel, selectedNames, onConfirm, onCl
 
     const fetchModels = async () => {
         if (!channel) return;
-        if (isPixmax) return;
+        if (isPixmax || isVod) return;
         if (!channel.baseUrl.trim() || !channel.apiKey.trim()) {
             message.error(t("config.modelSelect.missingConfig"));
             return;
@@ -111,11 +112,11 @@ export function ModelSelectModal({ open, channel, selectedNames, onConfirm, onCl
                 <Input className="min-w-[200px] flex-1" value={search} onChange={(event) => setSearch(event.target.value)} placeholder={t("config.modelSelect.search")} prefix={<Search className="size-4 text-stone-400" />} allowClear />
                 <Input className="min-w-[180px] flex-1" value={manual} onChange={(event) => setManual(event.target.value)} onPressEnter={addManual} placeholder={t("config.modelSelect.modelName")} />
                 <Button onClick={addManual}>{t("config.modelSelect.add")}</Button>
-                <Button icon={<RefreshCw className="size-4" />} loading={loading} disabled={isPixmax} onClick={() => void fetchModels()}>
+                <Button icon={<RefreshCw className="size-4" />} loading={loading} disabled={isPixmax || isVod} onClick={() => void fetchModels()}>
                     {t("config.modelSelect.fetch")}
                 </Button>
             </div>
-            {isPixmax ? <Alert className="mt-3" type="info" showIcon message="Pixmax 接入指引未提供 /models 列表接口" description="请在「Seedance 官方」页点击「添加 Pixmax 海外渠道」预填四个模型，或在这里按接入指引手动填写请求 model 值。" /> : <div className="mt-2 text-xs text-stone-500">{t("config.modelSelect.description")}</div>}
+            {isVod ? <Alert className="mt-3" type="info" message="腾讯VOD没有文档中的/models接口，请在腾讯VOD页添加预置渠道，模型名填写1.0-pro、1.0-pro-fast、1.0-pro-mini或1.5-pro作为ModelVersion。" /> : isPixmax ? <Alert className="mt-3" type="info" showIcon message="Pixmax 接入指引未提供 /models 列表接口" description="请在「Seedance 官方」页点击「添加 Pixmax 海外渠道」预填四个模型，或在这里按接入指引手动填写请求 model 值。" /> : <div className="mt-2 text-xs text-stone-500">{t("config.modelSelect.description")}</div>}
 
             <Tabs
                 className="mt-3"

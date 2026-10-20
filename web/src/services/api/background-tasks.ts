@@ -75,8 +75,10 @@ export async function backgroundFetch(url: string, init: RequestInit, context: B
     const absoluteUrl = new URL(url, window.location.href).href;
     if (!absoluteUrl.startsWith(`${absoluteBase}/`)) throw new Error("后台生成请求必须经过当前配置的本地代理。");
     const path = absoluteUrl.slice(absoluteBase.length + 1);
-    const target = path === "seedance/video" ? "/seedance/video" : path;
-    if (target !== "/seedance/video" && !/^https?:\/\//i.test(target)) throw new Error("后台生成的上游地址无效。");
+    const localTarget = ["seedance/video", "tencent-vod/video"].includes(path);
+    const target = localTarget ? `/${path}` : path;
+    if (!localTarget && !/^https?:\/\//i.test(target)) throw new Error("后台生成的上游地址无效。");
+    if (path === "tencent-vod/video" && identity.tencentVod !== 1) throw new Error("当前proxy不支持腾讯VOD，请更新app和proxy；尚未提交生成。");
     const headers = new Headers(init.headers);
     if (init.body instanceof FormData) headers.delete("content-type");
     const request = new Request(absoluteUrl, { ...init, headers });

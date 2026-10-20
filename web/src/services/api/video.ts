@@ -7,7 +7,7 @@ import { clampVideoSeconds, computeVideoSize, inferVideoRatio } from "@/lib/medi
 import { getMediaBlob, resolveMediaUrl, uploadMediaFile, type UploadedFile } from "@/services/file-storage";
 import { imageToDataUrl } from "@/services/image-storage";
 import { assertModelAvailable, boolConfig, buildApiUrl, isVolcengineSeedance25, modelOptionName, resolveModelRequestConfig, resolveModelScript, withLocalProxy, type AiConfig } from "@/stores/use-config-store";
-import { getVolcengineSeedanceScript, runModelPlugin } from "./model-plugin";
+import { getTencentVodScript, getVolcengineSeedanceScript, runModelPlugin } from "./model-plugin";
 import { pollMoyuSeedanceTask } from "./moyu-video";
 import type { ReferenceImage } from "@/types/image";
 import type { ReferenceAudio, ReferenceVideo } from "@/types/media";
@@ -80,6 +80,7 @@ export async function createVideoGenerationTask(config: AiConfig, prompt: string
     // Never pick a third-party adapter by host or model alias.
     const script = resolveModelScript(config, selectedModel);
     if (script) return createPluginVideoTask(requestConfig, selectedModel, script, prompt, references, options);
+    if (requestConfig.apiFormat === "tencent-vod") return createPluginVideoTask(requestConfig, selectedModel, getTencentVodScript(), prompt, references, options);
     assertVideoConfig(requestConfig, requestConfig.model);
     if (requestConfig.apiFormat === "volcengine" || isVolcengineSeedance25(config)) return createPluginVideoTask(requestConfig, selectedModel, getVolcengineSeedanceScript(), prompt, references, options);
     if (requestConfig.apiFormat === "gemini" && new URL(requestConfig.baseUrl).hostname === "generativelanguage.googleapis.com" && isOmniModel(selectedModel)) return createOmniVideoTask(requestConfig, selectedModel, prompt, references, options);
@@ -107,7 +108,7 @@ export async function pollVideoGenerationTask(config: AiConfig, task: VideoGener
 
 async function createPluginVideoTask(config: AiConfig, model: string, script: string, prompt: string, references: ReferenceImage[], options?: VideoMediaOptions): Promise<VideoGenerationTask> {
     if (!config.baseUrl.trim()) throw new Error(apiText("baseUrlRequired"));
-    if (!config.apiKey.trim()) throw new Error(apiText("apiKeyRequired"));
+    if (config.apiFormat !== "tencent-vod" && !config.apiKey.trim()) throw new Error(apiText("apiKeyRequired"));
     const refs = await Promise.all(references.map((image) => imageToDataUrl(image)));
     const videos = await Promise.all((options?.videos || []).map((video) => referenceMediaToFile(video, "ref.mp4", "invalidReferenceVideo", options)));
     const audios = await Promise.all((options?.audios || []).map((audio) => referenceMediaToFile(audio, "ref.mp3", "invalidReferenceAudio", options)));
@@ -121,7 +122,7 @@ async function createPluginVideoTask(config: AiConfig, model: string, script: st
             videos,
             audios,
             params: {
-                seconds: normalizeVideoSeconds(config.videoSeconds),
+                seconds: config.apiFormat === "tencent-vod" ? Number(config.videoSeconds) : normalizeVideoSeconds(config.videoSeconds),
                 size: normalizeVideoSize(config.size, config.vquality),
                 resolution: normalizeVideoResolution(config.vquality),
                 ratio: videoAspectRatio(config.size),

@@ -109,7 +109,9 @@ export function buildGenerationConfig(config: AiConfig, node: CanvasNodeData | u
     const model = resolveModelForCapability(config, node?.metadata?.model, mode);
     const channel = resolveModelChannel(config, model);
     const seedance = resolveChannelSeedanceConfig(config, channel);
-    const draft = node?.metadata?.seedanceDraft ?? seedance.draft;
+    const draft = channel.apiFormat === "tencent-vod" ? false : node?.metadata?.seedanceDraft ?? seedance.draft;
+    const taskType = node?.metadata?.seedanceTaskType || seedance.taskType;
+    const vodAdaptive = channel.apiFormat === "tencent-vod" && ["edit", "extend"].includes(taskType);
     return {
         ...config,
         model,
@@ -119,9 +121,9 @@ export function buildGenerationConfig(config: AiConfig, node: CanvasNodeData | u
         geminiImageSize: node?.metadata?.geminiImageSize ?? config.geminiImageSize,
         geminiAspectRatio: node?.metadata?.geminiAspectRatio ?? config.geminiAspectRatio,
         geminiThinkingLevel: node?.metadata?.geminiThinkingLevel ?? config.geminiThinkingLevel,
-        size: node?.metadata?.size || config.size || defaultConfig.size,
+        size: vodAdaptive ? "auto" : node?.metadata?.size || config.size || defaultConfig.size,
         background: node?.metadata?.background ?? config.background ?? defaultConfig.background,
-        videoSeconds: node?.metadata?.seconds || config.videoSeconds || defaultConfig.videoSeconds,
+        videoSeconds: vodAdaptive && taskType === "edit" ? "-1" : node?.metadata?.seconds || config.videoSeconds || defaultConfig.videoSeconds,
         vquality: node?.metadata?.vquality || config.vquality || defaultConfig.vquality,
         videoGenerateAudio: node?.metadata?.generateAudio || config.videoGenerateAudio || defaultConfig.videoGenerateAudio,
         videoWatermark: node?.metadata?.watermark || config.videoWatermark || defaultConfig.videoWatermark,
@@ -129,7 +131,7 @@ export function buildGenerationConfig(config: AiConfig, node: CanvasNodeData | u
         seedance: {
             ...seedance,
             draft,
-            taskType: node?.metadata?.seedanceTaskType || seedance.taskType,
+            taskType,
             seed: node?.metadata?.seedanceSeed ?? seedance.seed,
             cameraFixed: node?.metadata?.seedanceCameraFixed ?? seedance.cameraFixed,
             returnLastFrame: node?.metadata?.seedanceReturnLastFrame ?? seedance.returnLastFrame,

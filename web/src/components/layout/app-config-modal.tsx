@@ -13,6 +13,7 @@ import { ConfigLocalProxy } from "@/components/layout/config-local-proxy";
 import { ConfigPromptSources } from "@/components/layout/config-prompt-sources";
 import { ConfigLocalStorage } from "@/components/layout/config-local-storage";
 import { ConfigSeedance } from "@/components/layout/config-seedance";
+import { ConfigTencentVod } from "@/components/layout/config-tencent-vod";
 import { ConfigCostStatistics } from "@/components/layout/config-cost-statistics";
 import type { AppLocale } from "@/i18n";
 import { exportAppConfig, importAppConfig } from "@/services/config-file";
@@ -81,7 +82,7 @@ export function AppConfigPanel({ showDoneButton = false, initialTab = "channels"
     };
 
     const finishConfig = () => {
-        const ready = config.channels.some((channel) => channel.baseUrl.trim() && channel.apiKey.trim() && channel.models.length);
+        const ready = config.channels.some((channel) => channel.baseUrl.trim() && (channel.apiKey.trim() || channel.tencentVod?.secretKey) && channel.models.length);
         setConfigDialogOpen(false);
         if (!ready) return;
         message.success(t(shouldPromptContinue ? "config.savedContinue" : "config.saved"));
@@ -234,6 +235,9 @@ export function AppConfigPanel({ showDoneButton = false, initialTab = "channels"
                         key: "seedance",
                         label: t("config.tabs.seedance"),
                         children: <ConfigSeedance onAddModels={addSeedanceModels} />,
+                    },
+                    {
+                        key: "tencent-vod", label: "腾讯VOD", children: <ConfigTencentVod />,
                     },
                     {
                         key: "cost-statistics",
@@ -428,6 +432,7 @@ function normalizeImageCount(value: string) {
 }
 
 function apiFormatLabel(apiFormat: ApiCallFormat) {
+    if (apiFormat === "tencent-vod") return "腾讯VOD国际站";
     if (apiFormat === "gemini") return "Gemini";
     if (apiFormat === "volcengine") return "火山方舟";
     return "OpenAI";

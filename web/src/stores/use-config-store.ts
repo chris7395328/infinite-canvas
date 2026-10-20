@@ -8,8 +8,9 @@ import { DEPLOYED_PROXY_URL } from "@/constant/runtime-config";
 import { normalizeImageQualityForModel } from "@/lib/image-quality";
 import { normalizeModelPrice, normalizeResolutionPrices } from "@/lib/generation-cost";
 import type { ModelPrice, ResolutionPrice } from "@/types/generation-cost";
+import { defaultTencentVodConfig, TENCENT_VOD_BASE_URL, type TencentVodConfig } from "@/lib/tencent-vod";
 
-export type ApiCallFormat = "openai" | "gemini" | "volcengine";
+export type ApiCallFormat = "openai" | "gemini" | "volcengine" | "tencent-vod";
 export type ModelCapability = "image" | "video" | "text" | "audio";
 export type ReasoningEffort = "auto" | "low" | "medium" | "high" | "xhigh";
 
@@ -30,6 +31,7 @@ export type ModelChannel = {
     apiFormat: ApiCallFormat;
     models: ChannelModel[];
     seedance?: SeedanceConfig;
+    tencentVod?: TencentVodConfig;
 };
 
 export type SeedanceConfig = {
@@ -61,6 +63,7 @@ export type SeedanceConfig = {
 };
 
 export type AiConfig = {
+    tencentVod?: TencentVodConfig;
     seedanceChannelId?: string;
     geminiAudio?: import("@/lib/gemini-audio").GeminiAudioSettings;
     channelMode: "remote" | "local";
@@ -106,7 +109,7 @@ export type WebdavSyncConfig = {
     directory: string;
     lastSyncedAt: string;
 };
-export type ConfigTabKey = "channels" | "seedance" | "local-proxy" | "preferences" | "prompt-sources" | "webdav" | "local-storage" | "cost-statistics";
+export type ConfigTabKey = "channels" | "seedance" | "tencent-vod" | "local-proxy" | "preferences" | "prompt-sources" | "webdav" | "local-storage" | "cost-statistics";
 
 export type ChannelCredentialsImportResult = {
     status: "created" | "updated" | "missing-base-url" | "invalid-base-url";
@@ -281,7 +284,7 @@ export function resolveModelScript(config: AiConfig, value: string) {
 
 function isAiConfigReady(config: AiConfig, model: string) {
     const match = findChannelModel(config, model);
-    return Boolean(match && match.channel.baseUrl.trim() && match.channel.apiKey.trim());
+    return Boolean(match && match.channel.baseUrl.trim() && (match.channel.apiFormat === "tencent-vod" ? match.channel.tencentVod?.secretId.trim() && match.channel.tencentVod?.secretKey.trim() && match.channel.tencentVod?.subAppId.trim() : match.channel.apiKey.trim()));
 }
 
 export function assertModelAvailable(config: AiConfig, model: string) {
@@ -399,6 +402,7 @@ export function createModelChannel(channel?: Partial<ModelChannel>): ModelChanne
         apiFormat,
         models: normalizeChannelModels(channel?.models),
         ...(channel?.seedance ? { seedance: normalizeSeedanceConfig(channel.seedance) } : {}),
+        ...(channel?.tencentVod ? { tencentVod: { ...defaultTencentVodConfig, ...channel.tencentVod } } : {}),
     };
 }
 
@@ -522,12 +526,14 @@ export function resolveModelRequestConfig(config: AiConfig, value: string) {
         baseUrl: channel.baseUrl,
         apiKey: channel.apiKey,
         apiFormat: channel.apiFormat,
+        tencentVod: channel.tencentVod ? { ...defaultTencentVodConfig, ...channel.tencentVod, taskType: config.seedanceChannelId === channel.id ? config.seedance.taskType : channel.tencentVod.taskType, seed: config.seedanceChannelId === channel.id ? config.seedance.seed : channel.tencentVod.seed, returnLastFrame: config.seedanceChannelId === channel.id ? config.seedance.returnLastFrame : channel.tencentVod.returnLastFrame } : undefined,
         seedance: { ...(config.seedanceChannelId === channel.id ? config.seedance : resolveChannelSeedanceConfig(config, channel)), modelVersion: selected?.seedanceVersion || seedanceModelVersion(config, value) },
         seedanceChannelId: channel.id,
     };
 }
 
 export function resolveChannelSeedanceConfig(config: AiConfig, channel: ModelChannel): SeedanceConfig {
+    if (channel.apiFormat === "tencent-vod") return { ...normalizeSeedanceConfig(channel.seedance), taskType: channel.tencentVod?.taskType || "reference", seed: channel.tencentVod?.seed || "-1", returnLastFrame: channel.tencentVod?.returnLastFrame || false, draft: false };
     if (channel.seedance) return normalizeSeedanceConfig(channel.seedance);
     if (/^https:\/\/ark\.cn-beijing\.volces\.com\/api\/v3\/?$/i.test(channel.baseUrl)) return normalizeSeedanceConfig(config.seedance);
     return normalizeSeedanceConfig({ bridgeUrl: config.seedance.bridgeUrl });
@@ -579,13 +585,14 @@ function normalizeChannels(config: AiConfig) {
 }
 
 export function defaultBaseUrlForApiFormat(apiFormat: ApiCallFormat) {
+    if (apiFormat === "tencent-vod") return TENCENT_VOD_BASE_URL;
     if (apiFormat === "gemini") return GEMINI_BASE_URL;
     if (apiFormat === "volcengine") return "https://ark.cn-beijing.volces.com/api/v3";
     return OPENAI_BASE_URL;
 }
 
 function normalizeApiFormat(apiFormat: unknown): ApiCallFormat {
-    return apiFormat === "gemini" || apiFormat === "volcengine" ? apiFormat : "openai";
+    return apiFormat === "gemini" || apiFormat === "volcengine" || apiFormat === "tencent-vod" ? apiFormat : "openai";
 }
 
 function uniqueModelOptions(models: string[]) {

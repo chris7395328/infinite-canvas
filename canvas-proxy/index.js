@@ -5,6 +5,7 @@ import { createRequire } from "node:module";
 import { Readable } from "node:stream";
 import { createMemoryTasks } from "./memory-tasks.js";
 import { providerError } from "./provider-error.js";
+import { generateTencentVod } from "./tencent-vod.js";
 
 const pkg = createRequire(import.meta.url)("./package.json");
 
@@ -206,7 +207,7 @@ function cosAuthorization(url, secretId, secretKey) {
     return `q-sign-algorithm=sha1&q-ak=${encodeURIComponent(secretId).replace(/%7E/g, "~")}&q-sign-time=${keyTime}&q-key-time=${keyTime}&q-header-list=host&q-url-param-list=&q-signature=${signature}`;
 }
 
-async function uploadToCos(dataUrl, kind, settings) {
+async function uploadToCos(dataUrl, kind, settings, signal) {
     if (!settings.cosEnabled) throw new Error("本地素材需要启用 COS 上传");
     const { mime, bytes } = dataUrlInfo(dataUrl);
     const extension = extensionForMime(mime);
@@ -220,6 +221,7 @@ async function uploadToCos(dataUrl, kind, settings) {
         method: "PUT",
         headers: { "content-type": mime, authorization: cosAuthorization(uploadUrl, required(settings.cosSecretId, "COS Secret ID"), required(settings.cosSecretKey, "COS Secret Key")) },
         body: bytes,
+        signal,
     });
     if (!response.ok) throw new Error(`COS 上传失败 (${response.status})：${(await response.text()).slice(0, 500) || response.statusText}`);
     const publicBase = cosEndpoint(settings.cosPublicBaseUrl || settings.cosEndpoint, settings.cosBucket);
@@ -393,7 +395,7 @@ async function forward(req, res, target) {
 }
 
 export function createProxyServer() {
-    const memoryTasks = createMemoryTasks();
+    const memoryTasks = createMemoryTasks({ generateVod: (input, options) => generateTencentVod(input, { ...options, uploadToCos }) });
     return createServer((req, res) => {
         if (req.method === "OPTIONS") {
             res.writeHead(204, CORS_HEADERS);
@@ -406,6 +408,11 @@ export function createProxyServer() {
         }
         if (req.method === "POST" && req.url === "/seedance/private-asset") {
             void handleSeedancePrivateAsset(req, res);
+            return;
+        }
+        if (req.method === "POST" && req.url === "/tencent-vod/video") {
+            req.resume();
+            sendJson(res, 400, { error: "腾讯VOD需要画布后台任务；请在设置启用本地代理并从画布发起生成。尚未提交上游。" });
             return;
         }
         if ((req.url || "").startsWith("/_tasks/")) {
@@ -422,7 +429,7 @@ export function createProxyServer() {
         }
         const target = readTarget(req.url || "/");
         if (!target) {
-            sendJson(res, 200, { app: "infinite-canvas", proxy: pkg.name, version: pkg.version, memoryTasks: 2, multipartContentLength: true, taskStorage: process.env.CANVAS_TASK_DIR ? "disk" : "memory", usage: "/<full-target-url>" });
+            sendJson(res, 200, { app: "infinite-canvas", proxy: pkg.name, version: pkg.version, memoryTasks: 2, tencentVod: 1, multipartContentLength: true, taskStorage: process.env.CANVAS_TASK_DIR ? "disk" : "memory", usage: "/<full-target-url>" });
             return;
         }
         const startedAt = Date.now();
