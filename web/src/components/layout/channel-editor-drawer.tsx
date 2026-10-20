@@ -111,7 +111,7 @@ export function ChannelEditorDrawer({ open, channel, onSave, onClose }: { open: 
                                     {t(model.script ? "config.channelEditor.scriptReady" : "config.channelEditor.script")}
                                 </Button>
                                 <Button size="small" icon={<CircleDollarSign className="size-3.5" />} onClick={() => setPriceTarget(model)}>
-                                    {model.price ? `${model.price.amount}元/${model.price.unit === "second" ? "秒" : "次"}` : "金额设置"}
+                                    {model.resolutionPrices?.length ? `${model.resolutionPrices.length}档分辨率价格` : model.price ? `${model.price.amount}元/${model.price.unit === "second" ? "秒" : "次"}` : "金额设置"}
                                 </Button>
                                 <Button size="small" danger type="text" icon={<Trash2 className="size-3.5" />} onClick={() => removeModel(model.name)} />
                             </div>
@@ -123,7 +123,7 @@ export function ChannelEditorDrawer({ open, channel, onSave, onClose }: { open: 
             </div>
 
             <ModelSelectModal open={selectOpen} channel={draft} selectedNames={draft.models.map((model) => model.name)} onConfirm={applySelection} onClose={() => setSelectOpen(false)} />
-            {priceTarget ? <ModelPriceEditor key={priceTarget.name} model={priceTarget} onSave={(price) => setModels(draft.models.map((model) => model.name === priceTarget.name ? { ...model, price } : model))} onClose={() => setPriceTarget(null)} /> : null}
+            {priceTarget ? <ModelPriceEditor key={priceTarget.name} model={priceTarget} onSave={(pricing) => setModels(draft.models.map((model) => model.name === priceTarget.name ? { ...model, ...pricing } : model))} onClose={() => setPriceTarget(null)} /> : null}
 
             <ModelScriptEditor
                 open={Boolean(scriptTarget)}

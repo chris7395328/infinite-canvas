@@ -23,7 +23,7 @@ afterAll(() => {
 const { defaultConfig, normalizeChannelModels, useConfigStore } = await import("../src/stores/use-config-store");
 const { createGenerationCostSnapshot, recordGenerationSubmitted, recordReceivedGeneration, cancelFailedGenerationCosts } = await import("../src/services/generation-cost");
 const { useGenerationCostStore } = await import("../src/stores/use-generation-cost-store");
-const { generationCostMicros, filterCostRecords } = await import("../src/lib/generation-cost");
+const { generationCostMicros, filterCostRecords, normalizeResolutionPrices, normalizePriceResolution } = await import("../src/lib/generation-cost");
 const { copyNodeMetadata } = await import("../src/lib/canvas/canvas-node-factory");
 const { CanvasNodeType } = await import("../src/types/canvas");
 const config = {
@@ -39,6 +39,85 @@ const node = (status: "error" | "success"): CanvasNodeData => ({ id: "node", typ
 test("model price survives channel normalization and config round trip", () => {
     const models = normalizeChannelModels(JSON.parse(JSON.stringify(config.channels[1].models)));
     expect(models[0].price).toEqual({ unit: "second", amount: "0.53" });
+});
+
+test("resolution tiers round trip, normalize aliases, reject duplicate/invalid prices and per-second images", () => {
+    const tiers = [
+        { resolution: "720P", unit: "second" as const, amount: "0.53" },
+        { resolution: "4K", unit: "request" as const, amount: "10" },
+        { resolution: "2160p", unit: "request" as const, amount: "99" },
+        { resolution: "bad", unit: "request" as const, amount: "10" },
+        { resolution: "1080p", unit: "second" as const, amount: "-1" },
+    ];
+    const models = normalizeChannelModels(JSON.parse(JSON.stringify([{ name: "video", capability: "video", resolutionPrices: tiers }])));
+    expect(models[0].resolutionPrices).toEqual([
+        { resolution: "720p", unit: "second", amount: "0.53" },
+        { resolution: "2160p", unit: "request", amount: "10" },
+    ]);
+    expect(normalizeResolutionPrices([{ resolution: "2K", unit: "second", amount: "1" }], "image")).toEqual([]);
+    expect(normalizePriceResolution("1024 × 1024", "image")).toBe("1024x1024");
+});
+
+const tieredVideoConfig = {
+    ...config, vquality: "720",
+    channels: config.channels.map((channel) => ({ ...channel, models: channel.models.map((model) => ({ ...model, price: undefined, resolutionPrices: [
+        { resolution: "720p", unit: "second" as const, amount: "0.1" },
+        { resolution: "1080p", unit: "request" as const, amount: "3" },
+        { resolution: "4K", unit: "second" as const, amount: "0.8" },
+    ] })) })),
+};
+
+test("video resolution selects its own seconds/request price, with only explicitly configured fallback", () => {
+    const cost = (vquality: string, videoSeconds = "8") => createGenerationCostSnapshot({ ...tieredVideoConfig, vquality, videoSeconds }, "tiers", "node");
+    expect(cost("720")).toMatchObject({ resolution: "720p", seconds: 8, price: { amount: "0.1", unit: "second" } });
+    expect(cost("1080p", "-1")).toMatchObject({ resolution: "1080p", price: { amount: "3", unit: "request" } });
+    expect(cost("4K")).toMatchObject({ resolution: "2160p", price: { amount: "0.8", unit: "second" } });
+    expect(cost("480").price).toBeUndefined();
+    const fallback = { ...tieredVideoConfig, channels: tieredVideoConfig.channels.map((channel) => ({ ...channel, models: channel.models.map((model) => ({ ...model, price: { unit: "request" as const, amount: "0" } })) })) };
+    expect(createGenerationCostSnapshot({ ...fallback, vquality: "480" }, "tiers", "node").price).toEqual({ unit: "request", amount: "0" });
+});
+
+test("native Seedance draft prices the forced 480p parameter, not the formal resolution", () => {
+    const draftConfig = { ...tieredVideoConfig, model: "relay-b::dreamina-seedance-2-5-260628", vquality: "1080", seedanceChannelId: "relay-b", seedance: { ...config.seedance, draft: true }, channels: tieredVideoConfig.channels.map((channel) => ({ ...channel, apiFormat: "volcengine" as const, models: channel.models.map((model) => ({ ...model, name: "dreamina-seedance-2-5-260628", resolutionPrices: [...model.resolutionPrices, { resolution: "480p", unit: "second" as const, amount: "0.01" }] })) })) };
+    expect(createGenerationCostSnapshot(draftConfig, "draft", "node")).toMatchObject({ resolution: "480p", price: { unit: "second", amount: "0.01" } });
+});
+
+test("image prices use node pixel presets or Gemini size, exact pixel price takes priority", () => {
+    const imageConfig = { ...config, size: "2048x1152", geminiImageSize: "4K", channels: config.channels.map((channel) => ({ ...channel, models: channel.models.map((model) => ({ ...model, capability: "image" as const, price: undefined, resolutionPrices: [
+        { resolution: "1K", unit: "request" as const, amount: "0.1" },
+        { resolution: "2K", unit: "request" as const, amount: "0.2" },
+        { resolution: "4K", unit: "request" as const, amount: "0.4" },
+        { resolution: "1024x1024", unit: "request" as const, amount: "0.15" },
+        { resolution: "512", unit: "request" as const, amount: "0.05" },
+    ] })) })) };
+    expect(createGenerationCostSnapshot(imageConfig, "image-tier", "node")).toMatchObject({ resolution: "2K", size: "2048x1152", price: { amount: "0.2" } });
+    expect(createGenerationCostSnapshot({ ...imageConfig, size: "1536x1024" }, "image-tier", "node")).toMatchObject({ resolution: "1K", price: { amount: "0.1" } });
+    expect(createGenerationCostSnapshot({ ...imageConfig, size: "1024x1024" }, "image-tier", "node").price?.amount).toBe("0.15");
+    const geminiConfig = { ...imageConfig, model: "relay-b::gemini-3.1-flash-image-preview", channels: imageConfig.channels.map((channel) => ({ ...channel, models: channel.models.map((model) => ({ ...model, name: "gemini-3.1-flash-image-preview" })) })) };
+    expect(createGenerationCostSnapshot(geminiConfig, "gemini-tier", "node")).toMatchObject({ resolution: "4K", price: { amount: "0.4" } });
+    expect(createGenerationCostSnapshot({ ...geminiConfig, geminiImageSize: "512" }, "gemini-tier", "node")).toMatchObject({ resolution: "512", price: { amount: "0.05" } });
+    expect(createGenerationCostSnapshot({ ...imageConfig, size: "auto" }, "image-tier", "node").price).toBeUndefined();
+});
+
+test("submitted resolution and rate stay frozen through confirmation, persistence, channel and type filters", async () => {
+    const video = createGenerationCostSnapshot(tieredVideoConfig, "tier-persistence", "node");
+    await recordGenerationSubmitted(video);
+    tieredVideoConfig.channels[1].models[0].resolutionPrices[0].amount = "0.9";
+    await recordReceivedGeneration(video, { url: "blob:video", storageKey: "video:tiered" });
+    expect(generationCostMicros(record(video.id))).toBe(800000);
+    expect(record(video.id).resolution).toBe("720p");
+    useGenerationCostStore.setState({ records: [] });
+    await useGenerationCostStore.getState().load();
+    expect(record(video.id).price?.amount).toBe("0.1");
+    const image = { ...record(video.id), id: "image-filter", capability: "image" as const, resolution: "2K" };
+    const list = [record(video.id), image];
+    expect(filterCostRecords(list, undefined, undefined, "image")).toEqual([image]);
+    expect(filterCostRecords(list, undefined, undefined, "video")).toEqual([record(video.id)]);
+    expect(filterCostRecords(list)).toHaveLength(2);
+    const otherChannel = createGenerationCostSnapshot({ ...tieredVideoConfig, model: "relay-a::same-model" }, "channels", "node");
+    expect(otherChannel).toMatchObject({ channelId: "relay-a", price: { amount: "0.1" } });
+    expect(createGenerationCostSnapshot(tieredVideoConfig, "channels", "node").price?.amount).toBe("0.9");
+    tieredVideoConfig.channels[1].models[0].resolutionPrices[0].amount = "0.1";
 });
 
 test("submission uses selected channel and node parameters; failure cancels, recovered success confirms once", async () => {

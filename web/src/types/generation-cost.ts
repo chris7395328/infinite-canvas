@@ -1,4 +1,5 @@
 export type ModelPrice = { unit: "request" | "second"; amount: string };
+export type ResolutionPrice = ModelPrice & { resolution: string };
 
 export type GenerationCostSnapshot = {
     id: string;
@@ -9,6 +10,8 @@ export type GenerationCostSnapshot = {
     channelName: string;
     modelName: string;
     capability: "image" | "video" | "audio" | "text";
+    resolution?: string;
+    size?: string;
     price?: ModelPrice;
     seconds?: number;
     submittedAt?: string;

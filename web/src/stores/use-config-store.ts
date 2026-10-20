@@ -6,8 +6,8 @@ import { nanoid } from "nanoid";
 import i18n from "@/i18n";
 import { DEPLOYED_PROXY_URL } from "@/constant/runtime-config";
 import { normalizeImageQualityForModel } from "@/lib/image-quality";
-import { normalizeModelPrice } from "@/lib/generation-cost";
-import type { ModelPrice } from "@/types/generation-cost";
+import { normalizeModelPrice, normalizeResolutionPrices } from "@/lib/generation-cost";
+import type { ModelPrice, ResolutionPrice } from "@/types/generation-cost";
 
 export type ApiCallFormat = "openai" | "gemini" | "volcengine";
 export type ModelCapability = "image" | "video" | "text" | "audio";
@@ -18,6 +18,7 @@ export type ChannelModel = {
     capability: ModelCapability;
     script?: string;
     price?: ModelPrice;
+    resolutionPrices?: ResolutionPrice[];
     seedanceVersion?: "2.0" | "2.5";
 };
 
@@ -382,7 +383,8 @@ export function normalizeChannelModels(models: Array<string | ChannelModel> | un
         const script = typeof item === "string" ? undefined : item.script?.trim() || undefined;
         const seedanceVersion = typeof item === "string" ? undefined : item.seedanceVersion;
         const price = typeof item === "string" ? undefined : normalizeModelPrice(item.price);
-        result.push({ name, capability, script, ...(price ? { price } : {}), ...(seedanceVersion === "2.0" || seedanceVersion === "2.5" ? { seedanceVersion } : {}) });
+        const resolutionPrices = typeof item === "string" ? [] : normalizeResolutionPrices(item.resolutionPrices, capability);
+        result.push({ name, capability, script, ...(price ? { price } : {}), ...(resolutionPrices.length ? { resolutionPrices } : {}), ...(seedanceVersion === "2.0" || seedanceVersion === "2.5" ? { seedanceVersion } : {}) });
     }
     return result;
 }
