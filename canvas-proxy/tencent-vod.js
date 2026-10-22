@@ -55,7 +55,7 @@ export function vodRequest(input) {
     if (["edit", "extend"].includes(taskType) && !counts.video) throw new Error("视频编辑／延长必须连接参考视频节点");
     const frames = params.mode === "frames" && counts.image > 0;
     if (frames && (counts.image > 2 || counts.video || counts.audio)) throw new Error("首尾帧仅支持一张首帧或两张首尾帧，不能混用其他参考素材，请切换全参考");
-    const additional = { ...(pro15 ? { omni_reference_task_type: taskType } : {}), ...(settings.returnLastFrame ? { return_last_frame: true } : {}) };
+    const additional = { ...(pro15 && references.length > 0 && !frames ? { omni_reference_task_type: taskType } : {}), ...(settings.returnLastFrame ? { return_last_frame: true } : {}) };
     const wand = { ReturnVegaUsage: true, EnhancePromptMode: settings.enhancePrompt ? "enable" : "disable" };
     const body = { SubAppId: subAppId, ModelName: "wand-vega-video", ModelVersion: input.model, Prompt: required(input.prompt, "提示词"), OutputConfig: { StorageMode: "Temporary", Duration: taskType === "edit" ? -1 : duration, Resolution: resolution, AspectRatio: ratio, AudioGeneration: params.generateAudio === false ? "Disabled" : "Enabled", LogoAdd: params.watermark ? "Enabled" : "Disabled" }, ExtInfo: JSON.stringify({ AdditionalParameters: JSON.stringify(additional), WandVegaParameters: JSON.stringify(wand) }), SessionId: randomUUID() };
     if (settings.seed !== "" && settings.seed !== undefined && Number(settings.seed) !== -1) {

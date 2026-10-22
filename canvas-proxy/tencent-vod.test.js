@@ -28,6 +28,52 @@ test("VOD versions and node parameters map only to documented fields", () => {
     assert.throws(() => vodRequest({ ...input, params: { ...input.params, mode: "frames" }, references: [...input.references, { kind: "video", source: "https://media.example.com/a.mp4" }] }), /首尾帧/);
 });
 
+test("omni task type is sent only for 1.5-pro multimodal references, never text or frame generation", () => {
+    const input = fixture();
+    const additional = (request) => JSON.parse(JSON.parse(vodRequest(request).body.ExtInfo).AdditionalParameters);
+    for (const model of ["1.0-pro", "1.0-pro-fast", "1.0-pro-mini", "1.5-pro"]) {
+        for (const taskType of ["reference", "auto"]) {
+            const request = { ...input, model, tencentVod: { ...input.tencentVod, taskType, returnLastFrame: true } };
+            for (const mode of ["reference", "frames"]) {
+                assert.deepEqual(additional({ ...request, references: [], params: { ...input.params, mode } }), { return_last_frame: true });
+            }
+            for (const count of [1, 2]) {
+                assert.deepEqual(additional({ ...request, references: input.references.slice(0, count), params: { ...input.params, mode: "frames" } }), { return_last_frame: true });
+            }
+            assert.deepEqual(additional(request), { ...(model === "1.5-pro" ? { omni_reference_task_type: taskType } : {}), return_last_frame: true });
+        }
+    }
+    for (const taskType of ["reference", "auto", "edit", "extend"]) {
+        const request = { ...input, references: [{ kind: "video", source: "https://media.example.com/input.mp4" }], tencentVod: { ...input.tencentVod, taskType } };
+        assert.equal(additional(request).omni_reference_task_type, taskType);
+    }
+    assert.deepEqual(additional({ ...input, references: [] }), {});
+    assert.throws(() => vodRequest({ ...input, references: [], tencentVod: { ...input.tencentVod, taskType: "edit" } }), /必须连接参考视频/);
+    assert.throws(() => vodRequest({ ...input, references: [], tencentVod: { ...input.tencentVod, taskType: "extend" } }), /必须连接参考视频/);
+});
+
+test("text, first-frame and first-last-frame submissions omit omni task type and retrieve the original video", async () => {
+    for (const count of [0, 1, 2]) {
+        const input = fixture();
+        input.references = input.references.slice(0, count);
+        input.params.mode = count ? "frames" : "reference";
+        input.tencentVod.usePrivateAssets = false;
+        const calls = [];
+        const result = await generateTencentVod(input, { wait: immediate, uploadToCos: async () => "https://cos.example.com/frame.png", call: async (action, body) => {
+            calls.push(action);
+            if (action === "CreateAigcVideoTask") {
+                assert.deepEqual(JSON.parse(JSON.parse(body.ExtInfo).AdditionalParameters), {});
+                assert.deepEqual(body.FileInfos?.map((file) => file.Usage) || [], ["FirstFrame", "LastFrame"].slice(0, count));
+                return { TaskId: "original-video" };
+            }
+            assert.equal(action, "DescribeTaskDetail"); assert.equal(body.TaskId, "original-video");
+            return { Status: "FINISH", AigcVideoTask: { ErrCode: 0, Output: { FileInfos: [{ FileType: "mp4", FileUrl: "https://cdn.example.com/result.mp4" }] } } };
+        } });
+        assert.equal(result.url, "https://cdn.example.com/result.mp4");
+        assert.deepEqual(calls, ["CreateAigcVideoTask", "DescribeTaskDetail"]);
+    }
+});
+
 test("COS and international material registration preserve reference order; create once and poll the same task", async () => {
     const input = fixture();
     const calls = []; let poll = 0; const waits = [];

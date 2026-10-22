@@ -8,6 +8,7 @@
 
 独立脚本源码：web/src/services/api/tencent-vod-script.js（异步函数体，整体复制到模型调用脚本编辑器，不直接作为普通JS模块运行）。
 脚本读取当前模型版本及渠道配置；不在脚本里填写密钥。清空脚本也可使用同一VOD默认适配。
+请求由Docker构造并签名：1.5-pro仅在有素材且不是首帧／首尾帧模式时发送omni_reference_task_type；纯文字或首帧／首尾帧不发送该字段。此修复需要新版proxy，仅替换脚本不能修复旧代理；不自动重跑旧失败任务。
 
 API固定国际站https://vod.intl.tencentcloudapi.com/，ModelName=wand-vega-video，所选模型名作为ModelVersion。文档没有/models，不调用列表接口。
 素材流程：本地节点 → 现有COS URL → 当前VOD应用素材库 → asset:// → 视频生成。国际站按接入文档传IsRealPerson="False"，不调用国内站活体认证。素材必须有合法使用权，仍受审核。旧火山/Pixmax的asset ID不能跨应用使用。
