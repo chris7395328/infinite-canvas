@@ -1,9 +1,15 @@
-import { expect, mock, test } from "bun:test";
+import { afterAll, expect, mock, test } from "bun:test";
 import type { CanvasNodeData } from "../src/types/canvas";
 import type { CanvasProject } from "../src/stores/canvas/use-canvas-store";
 import type { BackgroundTask } from "../src/services/api/background-tasks";
 
 const stores = new Map<string, Map<string, unknown>>();
+const previousStorage = Object.getOwnPropertyDescriptor(globalThis, "localStorage");
+Object.defineProperty(globalThis, "localStorage", { configurable: true, value: { getItem: () => null, setItem: () => {}, removeItem: () => {} } });
+afterAll(() => {
+    if (previousStorage) Object.defineProperty(globalThis, "localStorage", previousStorage);
+    else Reflect.deleteProperty(globalThis, "localStorage");
+});
 mock.module("localforage", () => ({ default: { config: () => {}, createInstance: ({ storeName }: { storeName: string }) => {
     const data = stores.get(storeName) || new Map();
     stores.set(storeName, data);
