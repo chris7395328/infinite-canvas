@@ -10,7 +10,7 @@ export async function recordGenerationResource(snapshot: GenerationCostSnapshot,
     const node = project?.nodes.find((entry) => entry.id === snapshot.nodeId);
     await saveGenerationResource({
         kind: snapshot.capability, projectId: snapshot.projectId, projectTitle: project?.title || "未命名画布", nodeId: snapshot.nodeId,
-        title: node?.title || snapshot.modelName, prompt: snapshot.prompt || node?.metadata?.prompt || "", model: snapshot.modelName,
+        title: snapshot.prompt?.slice(0, 32) || node?.title || snapshot.modelName, prompt: snapshot.prompt || node?.metadata?.prompt || "", model: snapshot.modelName,
         createdAt: new Date().toISOString(), content: result.url || result.content || "", storageKey: result.storageKey,
         mimeType: result.mimeType, width: result.width || result.naturalWidth, height: result.height || result.naturalHeight, bytes: result.bytes, durationMs: result.durationMs,
     }, snapshot.itemId);

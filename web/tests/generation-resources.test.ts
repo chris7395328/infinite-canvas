@@ -36,6 +36,8 @@ test("same-type successful/failed/empty media nodes regenerate in place; config 
     }
     expect(regenerateInPlace(node(CanvasNodeType.Config), "image")).toBe(false);
     expect(regenerateInPlace(node(CanvasNodeType.Text), "image")).toBe(false);
+    expect(regenerateInPlace({ ...node(), metadata: { status: "success", content: "blob:manual-upload" } }, "image")).toBe(false);
+    expect(regenerateInPlace({ ...node(CanvasNodeType.Text), metadata: { content: "手工输入的源文本" } }, "text")).toBe(false);
 });
 
 test("clear old outputs/receipts without changing node settings or the old snapshot", () => {

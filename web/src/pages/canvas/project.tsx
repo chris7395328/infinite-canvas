@@ -363,6 +363,7 @@ function InfiniteCanvasPage() {
     const completeVideoNodeTask = useCallback(
         async (nodeId: string, config: Parameters<typeof buildGenerationConfig>[0], prompt: string, images: Parameters<typeof createVideoGenerationTask>[2], signal: AbortSignal, extra: CanvasNodeData["metadata"] = {}, videos: ReferenceVideo[] = [], audios: ReferenceAudio[] = []) => {
             const background = backgroundFor(nodeId, config);
+            if (background.billing) background.billing.prompt = prompt;
             setNodes((prev) => prev.map((item) => item.id === nodeId ? { ...item, metadata: { ...item.metadata, generationCost: background.billing } } : item));
             const task = await createVideoGenerationTask(config, prompt, images, { signal, videos, audios, background });
             if (task.provider !== "plugin") {
