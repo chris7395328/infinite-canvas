@@ -9,6 +9,7 @@ import { normalizeImageQualityForModel } from "@/lib/image-quality";
 import { normalizeModelPrice, normalizeResolutionPrices } from "@/lib/generation-cost";
 import type { ModelPrice, ResolutionPrice } from "@/types/generation-cost";
 import { defaultTencentVodConfig, TENCENT_VOD_BASE_URL, type TencentVodConfig } from "@/lib/tencent-vod";
+import { isSeedance25AssetsScript } from "@/lib/script-video-profile";
 
 export type ApiCallFormat = "openai" | "gemini" | "volcengine" | "tencent-vod";
 export type ModelCapability = "image" | "video" | "text" | "audio";
@@ -556,7 +557,7 @@ export function isVolcengineSeedance25(config: AiConfig) {
     const isArkChannel =
         channel.apiFormat === "volcengine" ||
         /ark\.cn-beijing\.volces\.com\/api\/v3/i.test(channel.baseUrl || "");
-    return isArkChannel && seedanceModelVersion(config, config.model) === "2.5";
+    return isSeedance25AssetsScript(findChannelModel(config, config.model)?.model.script) || isArkChannel && seedanceModelVersion(config, config.model) === "2.5";
 }
 
 function normalizeChannels(config: AiConfig) {

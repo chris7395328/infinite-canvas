@@ -6,6 +6,7 @@ node_modules/
 infinite-canvas-config.json
 data/
 task-data/
+.runtime/
 *.log
 *.tsbuildinfo
 .DS_Store

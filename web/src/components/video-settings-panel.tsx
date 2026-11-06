@@ -6,7 +6,8 @@ import i18n from "@/i18n";
 import { ImageSettingsTheme } from "@/components/image-settings-panel";
 import { type CanvasTheme } from "@/lib/canvas-theme";
 import { clampVideoSeconds, computeVideoSize, inferVideoRatio, parseVideoResolution, readVideoDimensions, VIDEO_SECONDS_MAX, VIDEO_SECONDS_MIN, videoRatioOptions } from "@/lib/media-size";
-import { isVolcengineSeedance25, modelOptionName, resolveModelRequestConfig, seedanceModelVersion, type AiConfig } from "@/stores/use-config-store";
+import { isVolcengineSeedance25, modelOptionName, resolveModelRequestConfig, resolveModelScript, seedanceModelVersion, type AiConfig } from "@/stores/use-config-store";
+import { isSeedance25AssetsScript } from "@/lib/script-video-profile";
 
 const resolutionOptions = [
     { value: "480", label: "480p" },
@@ -41,6 +42,7 @@ type VideoSettingsPanelProps = {
 export function VideoSettingsPanel({ config, onConfigChange, theme, showTitle = true, className = "w-[320px] space-y-4 rounded-2xl px-1 py-0.5" }: VideoSettingsPanelProps) {
     const { t } = useTranslation();
     const isSeedance25 = isVolcengineSeedance25(config);
+    const isAssetsProfile = isSeedance25AssetsScript(resolveModelScript(config, config.model));
     const modelName = modelOptionName(config.model).replace(/^models\//, "").toLowerCase();
     const channel = resolveModelRequestConfig(config, config.model);
     const isVod = channel.apiFormat === "tencent-vod";
@@ -71,7 +73,7 @@ export function VideoSettingsPanel({ config, onConfigChange, theme, showTitle = 
         else applySize(nextResolution, selectedRatio);
     };
     useEffect(() => {
-        const smartEdit = (isVod || isSeedance25 && seedance.taskType === "edit") && config.videoSeconds === "-1";
+        const smartEdit = (isVod || isAssetsProfile || isSeedance25 && seedance.taskType === "edit") && config.videoSeconds === "-1";
         if (!smartEdit && String(seconds) !== String(config.videoSeconds)) onConfigChange("videoSeconds", String(seconds));
         if (resolution !== requestedResolution) onConfigChange("vquality", resolution);
         // MOV is 2.5-only. Clear a persisted 2.5 choice when switching to Seedance 2.0.
@@ -84,7 +86,7 @@ export function VideoSettingsPanel({ config, onConfigChange, theme, showTitle = 
             const nextSize = computeVideoSize(resolution, selectedRatio);
             if (config.size !== nextSize) onConfigChange("size", nextSize);
         }
-    }, [config.model, config.size, config.videoSeconds, config.vquality, seedance.taskType, seedance.outputFormat, seconds, isDraft, isSeedance25, isVod, isVod15, fixedDimensions, resolution, requestedResolution, selectedRatio, onConfigChange]);
+    }, [config.model, config.size, config.videoSeconds, config.vquality, seedance.taskType, seedance.outputFormat, seconds, isDraft, isSeedance25, isAssetsProfile, isVod, isVod15, fixedDimensions, resolution, requestedResolution, selectedRatio, onConfigChange]);
 
     return (
         <ImageSettingsTheme theme={theme}>
@@ -114,26 +116,27 @@ export function VideoSettingsPanel({ config, onConfigChange, theme, showTitle = 
                             草稿模式
                             <Switch size="small" checked={isDraft} onChange={(checked) => { onConfigChange("seedanceDraft", String(checked)); if (checked) onConfigChange("vquality", "480"); }} />
                         </label>
-                        <div className="grid grid-cols-2 gap-2.5">
-                            <label className="flex h-9 items-center justify-between rounded-full border px-3 text-sm" style={{ borderColor: theme.node.stroke }}>
+                        <div className={isAssetsProfile ? "space-y-2.5" : "grid grid-cols-2 gap-2.5"}>
+                            {!isAssetsProfile ? <label className="flex h-9 items-center justify-between rounded-full border px-3 text-sm" style={{ borderColor: theme.node.stroke }}>
                                 固定镜头
                                 <Switch size="small" checked={seedance.cameraFixed} onChange={(checked) => onConfigChange("seedanceCameraFixed", String(checked))} />
-                            </label>
-                            <label className="flex h-9 items-center justify-between rounded-full border px-3 text-sm" style={{ borderColor: theme.node.stroke }}>
+                            </label> : null}
+                            {!isAssetsProfile || !isDraft ? <label className="flex h-9 items-center justify-between rounded-full border px-3 text-sm" style={{ borderColor: theme.node.stroke }}>
                                 返回尾帧
                                 <Switch size="small" checked={seedance.returnLastFrame} onChange={(checked) => onConfigChange("seedanceReturnLastFrame", String(checked))} />
-                            </label>
+                            </label> : null}
                         </div>
-                        <div className="grid grid-cols-[1fr_104px] items-center gap-2.5">
+                        <div className={isAssetsProfile ? "space-y-2.5" : "grid grid-cols-[1fr_104px] items-center gap-2.5"}>
                             <div className="grid grid-cols-2 gap-2">
                                 {(["mp4", "mov"] as const).map((format) => <OptionPill key={format} selected={seedance.outputFormat === format} theme={theme} onClick={() => onConfigChange("seedanceOutputFormat", format)}>{format.toUpperCase()}</OptionPill>)}
                             </div>
-                            <label className="flex h-9 overflow-hidden rounded-full border text-sm" style={{ borderColor: theme.node.stroke }}>
+                            {!isAssetsProfile ? <label className="flex h-9 overflow-hidden rounded-full border text-sm" style={{ borderColor: theme.node.stroke }}>
                                 <span className="grid shrink-0 place-items-center px-2 text-xs" style={{ color: theme.node.muted }}>Seed</span>
                                 <input type="number" className="min-w-0 flex-1 bg-transparent pr-2 text-center outline-none [appearance:textfield] [&::-webkit-inner-spin-button]:appearance-none [&::-webkit-outer-spin-button]:appearance-none" value={seedance.seed} onChange={(event) => onConfigChange("seedanceSeed", event.target.value)} onMouseDown={(event) => event.stopPropagation()} />
-                            </label>
+                            </label> : null}
                         </div>
                         {isDraft ? <div className="text-xs" style={{ color: theme.node.muted }}>草稿固定为 480p；生成成功后可在视频节点中发起正式生成。</div> : null}
+                        {isAssetsProfile ? <div className="text-xs" style={{ color: theme.node.muted }}>素材先经已有COS及当前平台素材库；真人须先在平台认证。首帧／首尾帧使用自适应比例。此渠道未公布固定镜头及Seed参数，不发送；尾帧不会自动另建图片节点。</div> : null}
                     </SettingGroup>
                 ) : null}
                 <SettingGroup title={t("settingsPanels.video.quality")} color={theme.node.muted}>
@@ -164,8 +167,8 @@ export function VideoSettingsPanel({ config, onConfigChange, theme, showTitle = 
                     </div>
                 </SettingGroup>
                 <SettingGroup title={t("settingsPanels.video.seconds")} color={theme.node.muted}>
-                    {isVod ? <label className="mb-2 flex items-center gap-2 text-xs">自动时长<Switch size="small" checked={config.videoSeconds === "-1"} onChange={(value) => onConfigChange("videoSeconds", value ? "-1" : "6")} /></label> : null}
-                    {isVod && config.videoSeconds === "-1" ? <div className="text-xs">由模型决定；按秒计价暂不能估算费用。</div> :
+                    {isVod || isAssetsProfile ? <label className="mb-2 flex items-center gap-2 text-xs">自动时长<Switch size="small" checked={config.videoSeconds === "-1"} onChange={(value) => onConfigChange("videoSeconds", value ? "-1" : "6")} /></label> : null}
+                    {(isVod || isAssetsProfile) && config.videoSeconds === "-1" ? <div className="text-xs">由模型决定；按秒计价暂不能估算费用。</div> :
                     <div className="flex items-center gap-3" onMouseDown={(event) => event.stopPropagation()}>
                         <Slider className="min-w-0 flex-1" min={minSeconds} max={maxSeconds} step={1} value={seconds} onChange={(value) => onConfigChange("videoSeconds", String(Array.isArray(value) ? value[0] : value))} />
                         <SecondsInput value={seconds} theme={theme} min={minSeconds} max={maxSeconds} onCommit={(value) => onConfigChange("videoSeconds", String(value))} />

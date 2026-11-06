@@ -2,6 +2,8 @@
 import { createServer } from "node:http";
 import { createHash, createHmac, randomUUID } from "node:crypto";
 import { createRequire } from "node:module";
+import { resolve } from "node:path";
+import { pathToFileURL } from "node:url";
 import { Readable } from "node:stream";
 import { createMemoryTasks } from "./memory-tasks.js";
 import { providerError } from "./provider-error.js";
@@ -429,7 +431,7 @@ export function createProxyServer() {
         }
         const target = readTarget(req.url || "/");
         if (!target) {
-            sendJson(res, 200, { app: "infinite-canvas", proxy: pkg.name, version: pkg.version, memoryTasks: 2, tencentVod: 1, multipartContentLength: true, taskStorage: process.env.CANVAS_TASK_DIR ? "disk" : "memory", usage: "/<full-target-url>" });
+            sendJson(res, 200, { app: "infinite-canvas", proxy: pkg.name, version: pkg.version, memoryTasks: 2, tencentVod: 1, taskResultMetadata: 1, multipartContentLength: true, taskStorage: process.env.CANVAS_TASK_DIR ? "disk" : "memory", usage: "/<full-target-url>" });
             return;
         }
         const startedAt = Date.now();
@@ -448,16 +450,18 @@ export function createProxyServer() {
     });
 }
 
-const args = process.argv.slice(2);
-if (args.includes("--help") || args.includes("-h")) {
-    console.log(`${pkg.name} v${pkg.version}\n\nUsage: npx ${pkg.name}@latest [--port 23210] [--host 127.0.0.1]\n\nForwards http://<host>:<port>/<full-target-url> to <full-target-url> with permissive CORS headers.`);
-    process.exit(0);
+if (process.argv[1] && import.meta.url === pathToFileURL(resolve(process.argv[1])).href) {
+    const args = process.argv.slice(2);
+    if (args.includes("--help") || args.includes("-h")) {
+        console.log(`${pkg.name} v${pkg.version}\n\nUsage: npx ${pkg.name}@latest [--port 23210] [--host 127.0.0.1]\n\nForwards http://<host>:<port>/<full-target-url> to <full-target-url> with permissive CORS headers.`);
+        process.exit(0);
+    }
+
+    const port = Number(readArg(args, "port", process.env.PORT || 23210));
+    const host = readArg(args, "host", process.env.HOST || "127.0.0.1");
+
+    createProxyServer().listen(port, host, () => {
+        console.log(`${pkg.name} v${pkg.version} listening on http://${host}:${port}`);
+        console.log(`Fill this address into Infinite Canvas → 配置 → 本地代理: http://${host}:${port}`);
+    });
 }
-
-const port = Number(readArg(args, "port", process.env.PORT || 23210));
-const host = readArg(args, "host", process.env.HOST || "127.0.0.1");
-
-createProxyServer().listen(port, host, () => {
-    console.log(`${pkg.name} v${pkg.version} listening on http://${host}:${port}`);
-    console.log(`Fill this address into Infinite Canvas → 配置 → 本地代理: http://${host}:${port}`);
-});

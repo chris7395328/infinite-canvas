@@ -45,8 +45,10 @@ export async function setMediaBlob(storageKey: string, blob: Blob) {
 }
 
 export async function deleteStoredMedia(keys: Iterable<string>) {
+    const { generationResourceKeys } = await import("@/stores/use-generation-resource-store");
+    const protectedKeys = new Set(await generationResourceKeys());
     await Promise.all(
-        Array.from(new Set(keys)).map(async (key) => {
+        Array.from(new Set(keys)).filter((key) => !protectedKeys.has(key)).map(async (key) => {
             const url = objectUrls.get(key);
             if (url) URL.revokeObjectURL(url);
             objectUrls.delete(key);
@@ -63,8 +65,10 @@ export async function cleanupUnusedMedia(usedData: unknown) {
 /** Remove audio/video files that are not referenced by the supplied live data. */
 export async function cleanupMediaFiles(usedKeys: Iterable<string>) {
     const used = new Set(usedKeys);
+    const { generationResourceKeys } = await import("@/stores/use-generation-resource-store");
+    for (const key of await generationResourceKeys()) used.add(key);
     const { backgroundTasks } = await import("@/services/api/background-tasks");
-    collectMediaStorageKeys(await backgroundTasks(), used);
+    collectMediaStorageKeys(await backgroundTasks(undefined, true), used);
     const unused: string[] = [];
     let bytes = 0;
     await store.iterate((value, key) => {

@@ -7,14 +7,14 @@ import { useTranslation } from "react-i18next";
 
 import { requestEdit, requestGeneration, requestImageQuestion } from "@/services/api/image";
 import { requestAudioGeneration, storeGeneratedAudio } from "@/services/api/audio";
-import { acknowledgeSavedBackgroundTasks, backgroundTasks, discardBackgroundTasks, type BackgroundContext } from "@/services/api/background-tasks";
+import { acknowledgeSavedBackgroundTasks, backgroundTasks, discardBackgroundTasks, supersedeNodeBackgroundTasks, type BackgroundContext } from "@/services/api/background-tasks";
 import { applyBackgroundResult, recoverBackgroundResult } from "@/services/background-task-recovery";
 import { cancelFailedGenerationCosts, cancelGenerationCosts, createGenerationCostSnapshot, recordReceivedGeneration } from "@/services/generation-cost";
 import { geminiAudioCapabilities, resolveGeminiReferenceVoice } from "@/lib/gemini-audio";
 import { resolveModelChannel } from "@/stores/use-config-store";
 import { CanvasAudioInputsContext, audioReferencesFromInputs } from "@/components/canvas/canvas-audio-inputs";
 import { createVideoGenerationTask, isVideoTaskFailed, storeGeneratedVideo, waitForVideoGenerationTask } from "@/services/api/video";
-import { defaultConfig, resolveModelRequestConfig, useConfigStore, useEffectiveConfig, type AiConfig } from "@/stores/use-config-store";
+import { defaultConfig, resolveModelRequestConfig, resolveModelScript, useConfigStore, useEffectiveConfig, type AiConfig } from "@/stores/use-config-store";
 import { ensureImagePreview, uploadImage } from "@/services/image-storage";
 import { uploadMediaFile, type UploadedFile } from "@/services/file-storage";
 import { nanoid } from "nanoid";
@@ -56,6 +56,9 @@ import { buildNodeMentionReferences, getGroupResourceNodes, isCanvasReferenceNod
 import { exportCanvasProjects } from "@/lib/canvas/canvas-export";
 import { applyNodeConfigPatch, audioMetadata, buildAudioGenerationMetadata, buildImageGenerationMetadata, copyNodeMetadata, createCanvasNode, imageMetadata, videoMetadata } from "@/lib/canvas/canvas-node-factory";
 import { geminiImageCapabilities, normalizeGeminiImageSettings } from "@/lib/gemini-image";
+import { isSeedance25AssetsScript } from "@/lib/script-video-profile";
+import { preserveNodeResources } from "@/services/generation-resources";
+import { regenerateInPlace, resetGenerationResult } from "@/lib/canvas/canvas-regeneration";
 import { applyGroupSelection, applyUngroupSelection, canGroupSelectedNodes, canUngroupSelectedNodes, collectGroupMemberNodes, findContainingGroupId, findGroupDropTarget, focusViewportForNode, getConnectionTargetAnchor, getGroupWrapRect, nodeBounds, normalizeConnection, snapNodesIntoGroup } from "@/lib/canvas/canvas-node-geometry";
 import {
     audioExtension,
@@ -299,6 +302,7 @@ function InfiniteCanvasPage() {
     const selectionResizeRef = useRef<Map<string, CanvasNodeData> | null>(null);
     const pendingConnectionCreateRef = useRef(pendingConnectionCreate);
     const generationRequestsRef = useRef(new Map<string, CanvasGenerationRequest>());
+    const preparingGenerationRef = useRef(new Set<string>());
     const videoPollIdsRef = useRef(new Set<string>());
 
     const createHistoryEntry = useCallback(
@@ -322,7 +326,7 @@ function InfiniteCanvasPage() {
 
     const loadedProjectRef = useRef("");
     const costPreviousNodesRef = useRef<{ projectId: string; nodes: CanvasNodeData[] }>({ projectId: "", nodes: [] });
-    const backgroundFor = useCallback((nodeId: string, config: AiConfig, itemId?: string, fallback?: CanvasNodeData): BackgroundContext => ({ projectId, nodeId, itemId, billing: createGenerationCostSnapshot(config, projectId, nodeId, itemId), snapshot: () => nodesRef.current.find((node) => node.id === nodeId) || fallback, connections: () => connectionsRef.current.filter((edge) => edge.toNodeId === nodeId) }), [projectId]);
+    const backgroundFor = useCallback((nodeId: string, config: AiConfig, itemId?: string, fallback?: CanvasNodeData): BackgroundContext => ({ projectId, nodeId, itemId, billing: { ...createGenerationCostSnapshot(config, projectId, nodeId, itemId), prompt: fallback?.metadata?.prompt || nodesRef.current.find((node) => node.id === nodeId)?.metadata?.prompt }, snapshot: () => nodesRef.current.find((node) => node.id === nodeId) || fallback, connections: () => connectionsRef.current.filter((edge) => edge.toNodeId === nodeId) }), [projectId]);
 
     useEffect(() => {
         if (!projectLoaded || loadedProjectRef.current !== projectId) return;
@@ -2580,15 +2584,18 @@ function InfiniteCanvasPage() {
     const handleGenerateNode = useCallback(
         async (nodeId: string, mode: CanvasNodeGenerationMode, prompt: string, overrides?: Partial<AiConfig>) => {
             const sourceNode = nodesRef.current.find((node) => node.id === nodeId);
-            // Explicit Generate creates a new attempt; Query original task alone resumes a receipt.
+            if (!sourceNode || preparingGenerationRef.current.has(nodeId) || generationRequestsRef.current.has(nodeId) || sourceNode.metadata?.status === NODE_STATUS_LOADING) return;
+            preparingGenerationRef.current.add(nodeId);
+            try {
+            // Explicit Generate starts a new attempt in the same media node; receipt recovery remains read-only.
             const isFailedGeneration = sourceNode?.metadata?.status === NODE_STATUS_ERROR && Boolean(sourceNode.metadata.model) && [CanvasNodeType.Image, CanvasNodeType.Video, CanvasNodeType.Audio, CanvasNodeType.Text].some((type) => type === sourceNode.type);
             if (!isFailedGeneration && !sourceNode?.metadata?.content && (await backgroundTasks(projectId)).some((task) => task.nodeId === nodeId)) {
                 message.warning("此节点已有后台任务，请使用「查询原任务」。若确实要重新付费生成，请新建节点，避免覆盖原任务。");
                 return;
             }
             const sourceInputConnections = connectionsRef.current.filter((connection) => connection.toNodeId === nodeId);
-            const isGeneratedNodeCopy = isFailedGeneration || Boolean(sourceNode?.metadata?.content && sourceNode?.metadata?.model && sourceInputConnections.length);
-            const generationSource = isGeneratedNodeCopy && !isFailedGeneration ? findRetrySourceNode(nodeId, nodesRef.current, connectionsRef.current) || sourceNode : sourceNode;
+            const isGeneratedNodeCopy = isFailedGeneration || Boolean(sourceNode?.metadata?.content && sourceNode?.metadata?.model);
+            const generationSource = isGeneratedNodeCopy ? findRetrySourceNode(nodeId, nodesRef.current, connectionsRef.current) || sourceNode : sourceNode;
             const copySourceConnections = (targetNodeId: string) =>
                 isGeneratedNodeCopy
                     ? sourceInputConnections.map((connection) => ({ id: nanoid(), fromNodeId: connection.fromNodeId, toNodeId: targetNodeId }))
@@ -2598,6 +2605,17 @@ function InfiniteCanvasPage() {
             if (!isAiConfigReady(generationConfig, generationConfig.model)) {
                 openConfigDialog(true);
                 return;
+            }
+            const reuseNode = regenerateInPlace(sourceNode, mode);
+            if (reuseNode) {
+                const project = useCanvasStore.getState().projects.find((entry) => entry.id === projectId);
+                try {
+                    if (project) await preserveNodeResources(project, sourceNode);
+                    await supersedeNodeBackgroundTasks(projectId, nodeId);
+                } catch (error) {
+                    message.error("旧结果或任务凭据保存失败，未开始重新生成：" + (error instanceof Error ? error.message : String(error)));
+                    return;
+                }
             }
 
             // useBuiltinPanel.writeBackToSelf reuses built-in generation while writing the result back to the plugin node.
@@ -2639,7 +2657,8 @@ function InfiniteCanvasPage() {
             const runController = startGenerationRequest(nodeId, nodeId, nodeId);
             const sourceTextContent = sourceNode?.type === CanvasNodeType.Text ? sourceNode.metadata?.content?.trim() || "" : "";
             const editingTextNode = mode === "text" && Boolean(sourceTextContent);
-            const generationContext = await hydrateNodeGenerationContext(
+            const formalScriptVideo = mode === "video" && generationConfig.seedance.draft === false && Boolean(generationConfig.seedance.draftTaskId) && isSeedance25AssetsScript(resolveModelScript(generationConfig, generationConfig.model));
+            const generationContext = formalScriptVideo ? { prompt, referenceImages: [], referenceVideos: [], referenceAudios: [], textCount: 0, imageCount: 0, videoCount: 0, audioCount: 0 } : await hydrateNodeGenerationContext(
                 buildNodeGenerationContext(generationSource?.id || nodeId, nodesRef.current, connectionsRef.current, isGeneratedNodeCopy ? generationSource?.metadata?.composerContent || generationSource?.metadata?.prompt || prompt : editingTextNode ? t("canvas.projectPage.editTextPrompt", { source: sourceTextContent, prompt }) : prompt, geminiAudioCapabilities(generationConfig.model)?.kind === "tts"),
             );
             const effectivePrompt = (isGeneratedNodeCopy ? prompt : generationContext.prompt).trim();
@@ -2662,7 +2681,7 @@ function InfiniteCanvasPage() {
                     const count = getGenerationCount(generationConfig.count);
                     const isConfigNode = sourceNode?.type === CanvasNodeType.Config;
                     const isImageNode = sourceNode?.type === CanvasNodeType.Image;
-                    const isEmptyImageNode = isImageNode && !sourceNode?.metadata?.content && !isFailedGeneration;
+                    const isEmptyImageNode = reuseNode;
                     const sourceReference =
                         isImageNode && sourceNode?.metadata?.content && !isGeneratedNodeCopy
                             ? [{ id: sourceNode.id, name: `${sourceNode.title || sourceNode.id}.png`, type: sourceNode.metadata.mimeType || "image/png", dataUrl: sourceNode.metadata.content, storageKey: sourceNode.metadata.storageKey }]
@@ -2680,13 +2699,14 @@ function InfiniteCanvasPage() {
                         id: rootId,
                         type: CanvasNodeType.Image,
                         title: effectivePrompt.slice(0, 32) || "Generated Image",
-                        position: {
+                        position: isEmptyImageNode ? sourceNode.position : {
                             x: isEmptyImageNode ? parentPosition.x : parentPosition.x + parentConfig.width + 96,
                             y: parentPosition.y + parentConfig.height / 2 - imageConfig.height / 2,
                         },
                         width: isEmptyImageNode ? sourceNode?.width || imageConfig.width : imageConfig.width,
                         height: isEmptyImageNode ? sourceNode?.height || imageConfig.height : imageConfig.height,
                         metadata: {
+                            ...(reuseNode ? resetGenerationResult(sourceNode.metadata) : {}),
                             prompt: effectivePrompt,
                             status: NODE_STATUS_LOADING,
                             images: imageIds.map((id) => ({ id, status: NODE_STATUS_LOADING, content: "", naturalWidth: 0, naturalHeight: 0, bytes: 0, mimeType: "" })),
@@ -2696,7 +2716,7 @@ function InfiniteCanvasPage() {
 
                     setNodes((prev) => [
                         ...prev.map((node) =>
-                            node.id === nodeId && !isFailedGeneration
+                            node.id === nodeId && (reuseNode || !isFailedGeneration)
                                 ? isConfigNode
                                     ? {
                                           ...node,
@@ -2709,7 +2729,7 @@ function InfiniteCanvasPage() {
                                             width: rootNode.width,
                                             height: rootNode.height,
                                             title: rootNode.title,
-                                            metadata: { ...node.metadata, ...rootNode.metadata, errorDetails: undefined },
+                                            metadata: rootNode.metadata,
                                         }
                                       : isImageNode
                                         ? {
@@ -2807,7 +2827,7 @@ function InfiniteCanvasPage() {
 
                 if (mode === "video") {
                     const spec = nodeSizeFromRatio(generationConfig.size, NODE_DEFAULT_SIZE[CanvasNodeType.Video].width, NODE_DEFAULT_SIZE[CanvasNodeType.Video].height) || NODE_DEFAULT_SIZE[CanvasNodeType.Video];
-                    const isEmptyVideoNode = sourceNode?.type === CanvasNodeType.Video && !sourceNode.metadata?.content && !isFailedGeneration;
+                    const isEmptyVideoNode = reuseNode;
                     const videoId = isEmptyVideoNode ? nodeId : nanoid();
                     const parent = sourceNode?.position || { x: 0, y: 0 };
                     const videoNode: CanvasNodeData = {
@@ -2818,6 +2838,7 @@ function InfiniteCanvasPage() {
                         width: isEmptyVideoNode ? sourceNode.width : spec.width,
                         height: isEmptyVideoNode ? sourceNode.height : spec.height,
                         metadata: {
+                            ...(reuseNode ? resetGenerationResult(sourceNode.metadata) : {}),
                             prompt: effectivePrompt,
                             status: NODE_STATUS_LOADING,
                             model: generationConfig.model,
@@ -2864,7 +2885,7 @@ function InfiniteCanvasPage() {
                 if (mode === "audio") {
                     if (geminiAudioCapabilities(generationConfig.model)?.kind === "tts") generationConfig.geminiAudio = resolveGeminiReferenceVoice(generationConfig.geminiAudio || {}, audioReferencesFromInputs(buildNodeGenerationInputs(nodeId, nodesRef.current, connectionsRef.current)), resolveModelChannel(generationConfig, generationConfig.model).id);
                     const spec = NODE_DEFAULT_SIZE[CanvasNodeType.Audio];
-                    const isEmptyAudioNode = sourceNode?.type === CanvasNodeType.Audio && !sourceNode.metadata?.content && !isFailedGeneration;
+                    const isEmptyAudioNode = reuseNode;
                     const audioId = isEmptyAudioNode ? nodeId : nanoid();
                     const parent = sourceNode?.position || { x: 0, y: 0 };
                     const audioNode: CanvasNodeData = {
@@ -2874,7 +2895,7 @@ function InfiniteCanvasPage() {
                         position: isEmptyAudioNode ? sourceNode.position : { x: parent.x + (sourceNode?.width || spec.width) + 96, y: parent.y + ((sourceNode?.height || spec.height) - spec.height) / 2 },
                         width: isEmptyAudioNode ? sourceNode.width : spec.width,
                         height: isEmptyAudioNode ? sourceNode.height : spec.height,
-                        metadata: { prompt: effectivePrompt, status: NODE_STATUS_LOADING, ...buildAudioGenerationMetadata(generationConfig) },
+                        metadata: { ...(reuseNode ? resetGenerationResult(sourceNode.metadata) : {}), prompt: effectivePrompt, status: NODE_STATUS_LOADING, ...buildAudioGenerationMetadata(generationConfig) },
                     };
                     pendingChildIds = [audioId];
                     setNodes((prev) =>
@@ -2902,7 +2923,7 @@ function InfiniteCanvasPage() {
                 const parentConfig = NODE_DEFAULT_SIZE[isConfigNode ? CanvasNodeType.Config : CanvasNodeType.Text];
                 const textConfig = NODE_DEFAULT_SIZE[CanvasNodeType.Text];
                 const parentPosition = sourceNode?.position || { x: 0, y: 0 };
-                const isEmptyTextNode = sourceNode?.type === CanvasNodeType.Text && !sourceTextContent && !isFailedGeneration;
+                const isEmptyTextNode = reuseNode;
                 const rootId = isEmptyTextNode ? nodeId : nanoid();
                 const textIds = Array.from({ length: textCount }, () => nanoid());
                 const rootNode: CanvasNodeData = {
@@ -2913,6 +2934,7 @@ function InfiniteCanvasPage() {
                     width: isEmptyTextNode ? sourceNode.width : textConfig.width,
                     height: isEmptyTextNode ? sourceNode.height : textConfig.height,
                     metadata: {
+                        ...(reuseNode ? resetGenerationResult(sourceNode.metadata) : {}),
                         prompt: effectivePrompt,
                         status: NODE_STATUS_LOADING,
                         fontSize: 14,
@@ -3020,7 +3042,7 @@ function InfiniteCanvasPage() {
                 setNodes((prev) =>
                     prev.map((node) =>
                         node.id === nodeId || pendingChildIds.includes(node.id)
-                            ? node.id === nodeId && !markSourceStatus
+                            ? node.id === nodeId && !markSourceStatus && !pendingChildIds.includes(node.id)
                                 ? node
                                 : {
                                       ...node,
@@ -3038,6 +3060,12 @@ function InfiniteCanvasPage() {
                 finishGenerationRequest(nodeId, runController);
                 setRunningNodeId(null);
             }
+            } catch (error) {
+                const request = generationRequestsRef.current.get(nodeId);
+                if (request) finishGenerationRequest(nodeId, request.controller);
+                setRunningNodeId(null);
+                if (!isGenerationCanceled(error)) message.error(error instanceof Error ? error.message : "生成准备失败，未自动重试。");
+            } finally { preparingGenerationRef.current.delete(nodeId); }
         },
         [backgroundFor, projectId, completeVideoNodeTask, effectiveConfig, finishGenerationRequest, isAiConfigReady, message, openConfigDialog, startGenerationRequest, t],
     );
@@ -3349,16 +3377,17 @@ function InfiniteCanvasPage() {
         (payload: InsertAssetPayload) => {
             if (payload.kind === "text") {
                 insertAssistantText(payload.content, payload.title);
-            } else if (payload.kind === "video") {
-                const spec = NODE_DEFAULT_SIZE[CanvasNodeType.Video];
+            } else if (payload.kind === "video" || payload.kind === "audio") {
+                const type = payload.kind === "audio" ? CanvasNodeType.Audio : CanvasNodeType.Video;
+                const spec = NODE_DEFAULT_SIZE[type];
                 const center = screenToCanvas((containerRef.current?.getBoundingClientRect().left || 0) + size.width / 2, (containerRef.current?.getBoundingClientRect().top || 0) + size.height / 2);
-                const id = `video-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`;
-                const nextSize = fitNodeSize(payload.width || spec.width, payload.height || spec.height, VIDEO_NODE_MAX_WIDTH, VIDEO_NODE_MAX_HEIGHT);
+                const id = `${payload.kind}-${nanoid()}`;
+                const nextSize = payload.kind === "audio" ? spec : fitNodeSize(payload.width || spec.width, payload.height || spec.height, VIDEO_NODE_MAX_WIDTH, VIDEO_NODE_MAX_HEIGHT);
                 setNodes((prev) => [
                     ...prev,
                     {
                         id,
-                        type: CanvasNodeType.Video,
+                        type,
                         title: payload.title,
                         position: { x: center.x - nextSize.width / 2, y: center.y - nextSize.height / 2 },
                         width: nextSize.width,

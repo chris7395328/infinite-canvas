@@ -5,6 +5,8 @@ import { geminiImageCapabilities, normalizeGeminiImageSettings } from "@/lib/gem
 import { inferMediaScale, parseVideoResolution } from "@/lib/media-size";
 import type { GenerationCostSnapshot } from "@/types/generation-cost";
 import type { CanvasNodeData } from "@/types/canvas";
+import { isSeedance25AssetsScript } from "@/lib/script-video-profile";
+import { recordGenerationResource, type ReceivedResource } from "./generation-resources";
 
 export function createGenerationCostSnapshot(config: AiConfig, projectId: string, nodeId: string, itemId?: string): GenerationCostSnapshot {
     const channel = resolveModelChannel(config, config.model);
@@ -13,15 +15,16 @@ export function createGenerationCostSnapshot(config: AiConfig, projectId: string
     const seconds = model?.capability === "video" ? Number(config.videoSeconds) : model?.capability === "audio" && musicDuration ? Number(musicDuration[1]) * (/分钟|min/i.test(musicDuration[2] || "") ? 60 : 1) : undefined;
     const capability = model?.capability || "image";
     const geminiImage = capability === "image" && geminiImageCapabilities(config.model);
-    const draft = capability === "video" && !model?.script && isVolcengineSeedance25(config) && resolveModelRequestConfig(config, config.model).seedance.draft;
+    const draft = capability === "video" && (!model?.script || isSeedance25AssetsScript(model.script)) && isVolcengineSeedance25(config) && resolveModelRequestConfig(config, config.model).seedance.draft;
     const resolution = capability === "video" ? normalizePriceResolution(draft ? "480" : /k$/i.test(config.vquality) ? config.vquality : parseVideoResolution(config.vquality), "video")
         : capability === "image" ? normalizePriceResolution(geminiImage ? normalizeGeminiImageSettings(config.model, config).geminiImageSize : inferMediaScale(config.size), "image") : undefined;
     const size = capability === "image" && !geminiImage ? config.size : undefined;
     return { id: crypto.randomUUID(), projectId, nodeId, itemId, channelId: channel.id, channelName: channel.name, modelName: modelOptionName(config.model), capability, resolution, size, price: model ? resolveResolutionPrice(model, resolution, size) : undefined, seconds: seconds && seconds > 0 ? seconds : undefined };
 }
 
-export async function recordReceivedGeneration(snapshot: GenerationCostSnapshot | undefined, result: { content?: string; url?: string; storageKey?: string }) {
+export async function recordReceivedGeneration(snapshot: GenerationCostSnapshot | undefined, result: ReceivedResource) {
     if (!snapshot?.submittedAt || !(result.content || result.url)?.trim() || (snapshot.capability !== "text" && !result.storageKey)) return;
+    await recordGenerationResource(snapshot, result);
     await useGenerationCostStore.getState().write(snapshot, "success");
 }
 

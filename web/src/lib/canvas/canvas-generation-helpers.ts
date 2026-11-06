@@ -1,4 +1,5 @@
-import { defaultConfig, resolveChannelSeedanceConfig, resolveModelChannel, resolveModelForCapability, type AiConfig } from "@/stores/use-config-store";
+import { defaultConfig, resolveChannelSeedanceConfig, resolveModelChannel, resolveModelForCapability, resolveModelScript, type AiConfig } from "@/stores/use-config-store";
+import { isSeedance25AssetsScript } from "@/lib/script-video-profile";
 import i18n from "@/i18n";
 import { ensureImagePreview, resolveImageUrl, uploadImage } from "@/services/image-storage";
 import { resolveMediaUrl } from "@/services/file-storage";
@@ -111,7 +112,7 @@ export function buildGenerationConfig(config: AiConfig, node: CanvasNodeData | u
     const seedance = resolveChannelSeedanceConfig(config, channel);
     const draft = channel.apiFormat === "tencent-vod" ? false : node?.metadata?.seedanceDraft ?? seedance.draft;
     const taskType = node?.metadata?.seedanceTaskType || seedance.taskType;
-    const vodAdaptive = channel.apiFormat === "tencent-vod" && ["edit", "extend"].includes(taskType);
+    const vodAdaptive = (channel.apiFormat === "tencent-vod" || isSeedance25AssetsScript(resolveModelScript(config, model))) && ["edit", "extend"].includes(taskType);
     return {
         ...config,
         model,

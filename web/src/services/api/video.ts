@@ -15,6 +15,7 @@ import { backgroundPost, type BackgroundContext, type BackgroundKind } from "./b
 import { recordGenerationSubmitted } from "@/services/generation-cost";
 import { useConfigStore } from "@/stores/use-config-store";
 import { normalizeVideoResultBlob } from "@/lib/video-result-blob";
+import { isSeedance25AssetsScript } from "@/lib/script-video-profile";
 
 type VideoResponse = { id: string; status?: string; error?: { message?: string }; url?: string; result_url?: string; video_url?: string; content?: { video_url?: string; url?: string } | null };
 type ApiVideoResponse = VideoResponse | { code?: number | string; data?: VideoResponse | null; msg?: string; message?: string; error?: { message?: string } };
@@ -109,9 +110,11 @@ export async function pollVideoGenerationTask(config: AiConfig, task: VideoGener
 async function createPluginVideoTask(config: AiConfig, model: string, script: string, prompt: string, references: ReferenceImage[], options?: VideoMediaOptions): Promise<VideoGenerationTask> {
     if (!config.baseUrl.trim()) throw new Error(apiText("baseUrlRequired"));
     if (config.apiFormat !== "tencent-vod" && !config.apiKey.trim()) throw new Error(apiText("apiKeyRequired"));
-    const refs = await Promise.all(references.map((image) => imageToDataUrl(image)));
-    const videos = await Promise.all((options?.videos || []).map((video) => referenceMediaToFile(video, "ref.mp4", "invalidReferenceVideo", options)));
-    const audios = await Promise.all((options?.audios || []).map((audio) => referenceMediaToFile(audio, "ref.mp3", "invalidReferenceAudio", options)));
+    const assetsProfile = isSeedance25AssetsScript(script);
+    const formal = assetsProfile && config.seedance.draft === false && Boolean(config.seedance.draftTaskId);
+    const refs = formal ? [] : await Promise.all(references.map((image) => imageToDataUrl(image)));
+    const videos = formal ? [] : await Promise.all((options?.videos || []).map((video) => referenceMediaToFile(video, "ref.mp4", "invalidReferenceVideo", options)));
+    const audios = formal ? [] : await Promise.all((options?.audios || []).map((audio) => referenceMediaToFile(audio, "ref.mp3", "invalidReferenceAudio", options)));
     const result = videoPluginResult(
         await runModelPlugin({
             capability: "video",
@@ -122,13 +125,13 @@ async function createPluginVideoTask(config: AiConfig, model: string, script: st
             videos,
             audios,
             params: {
-                seconds: config.apiFormat === "tencent-vod" ? Number(config.videoSeconds) : normalizeVideoSeconds(config.videoSeconds),
+                seconds: config.apiFormat === "tencent-vod" || assetsProfile ? Number(config.videoSeconds) : normalizeVideoSeconds(config.videoSeconds),
                 size: normalizeVideoSize(config.size, config.vquality),
                 resolution: normalizeVideoResolution(config.vquality),
                 ratio: videoAspectRatio(config.size),
                 generateAudio: boolConfig(config.videoGenerateAudio, true),
                 watermark: boolConfig(config.videoWatermark, false),
-                mode: resolveVideoMode(config.videoMode, refs.length),
+                mode: assetsProfile ? config.videoMode === "frames" ? "frames" : "reference" : resolveVideoMode(config.videoMode, refs.length),
             },
             signal: options?.signal,
             background: options?.background,
@@ -144,7 +147,7 @@ export function videoPluginResult(result: unknown): VideoGenerationResult {
     if (typeof result === "string") return { url: result, mimeType: videoMimeType(result) };
     if (result && typeof result === "object") {
         const record = result as Record<string, unknown>;
-        if (record.blob instanceof Blob) return { blob: record.blob };
+        if (record.blob instanceof Blob) return { blob: record.blob, draftTaskId: typeof record.draftTaskId === "string" ? record.draftTaskId : undefined };
         const url = [record.url, record.video_url, record.result_url].find((value) => typeof value === "string" && value) as string | undefined;
         if (url) return { url, mimeType: typeof record.mimeType === "string" ? record.mimeType : videoMimeType(url), draftTaskId: typeof record.draftTaskId === "string" ? record.draftTaskId : typeof record.draft_task_id === "string" ? record.draft_task_id : undefined };
     }

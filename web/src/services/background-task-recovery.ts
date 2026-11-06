@@ -2,7 +2,7 @@ import { acknowledgeBackgroundTask, backgroundTasks, waitBackgroundTask, type Ba
 import { parseGeminiAudioResponse } from "./api/gemini-audio";
 import { assertAudioBlob, audioPluginBlob, storeGeneratedAudio } from "./api/audio";
 import { assertVideoBlob, storeGeneratedVideo, videoPluginResult } from "./api/video";
-import { getPluginTemplates, getVolcengineSeedanceScript, normalizePluginImages, runModelPlugin } from "./api/model-plugin";
+import { isReplayablePluginScript, normalizePluginImages, runModelPlugin } from "./api/model-plugin";
 import { resolveModelRequestConfig, useConfigStore } from "@/stores/use-config-store";
 import { parseBackgroundText, parseGeminiImagePayload, parseImagePayload } from "./api/image";
 import { uploadImage } from "./image-storage";
@@ -10,6 +10,7 @@ import { audioMetadata, imageMetadata, videoMetadata } from "@/lib/canvas/canvas
 import type { CanvasNodeData, CanvasNodeImage, CanvasNodeText } from "@/types/canvas";
 import { normalizeVideoResultBlob } from "@/lib/video-result-blob";
 import { recordReceivedGeneration } from "./generation-cost";
+import { isSeedance25AssetsScript } from "@/lib/script-video-profile";
 
 async function recordRecoveredCost(task: BackgroundTask, saved: CanvasNodeData) {
     const result = task.itemId ? saved.metadata?.images?.find((item) => item.id === task.itemId) || saved.metadata?.texts?.find((item) => item.id === task.itemId) : saved.metadata;
@@ -43,17 +44,20 @@ export async function recoverBackgroundResult(task: BackgroundTask, node: Canvas
     let pluginResult: unknown;
     if (task.plugin) {
         const plugin = task.plugin;
-        const known = plugin.script === getVolcengineSeedanceScript() || getPluginTemplates()[plugin.capability].some((template) => template.script === plugin.script);
+        const known = isReplayablePluginScript(plugin.capability, plugin.script);
         if (!known) {
             // Explicit video-protocol scripts leave the final downloaded video in RAM.
             // Read that receipt only: never replay uploads, user JS or generation POSTs.
-            const receipts = (await backgroundTasks(task.projectId)).filter((entry) => entry.nodeId === task.nodeId && entry.itemId === task.itemId);
+            const receipts = (await backgroundTasks(task.projectId, true)).filter((entry) => entry.nodeId === task.nodeId && entry.itemId === task.itemId && Boolean(entry.superseded) === Boolean(task.superseded) && (!task.billing || entry.billing?.id === task.billing.id));
             if (task.kind !== "plugin-video" || plugin.capability !== "video" || receipts.length !== 1) throw new Error("此脚本需专用结果解析（非单步视频任务）；后台结果仍保留，未运行脚本或重新生成。");
             const response = await waitBackgroundTask(task, signal);
-            pluginResult = await normalizeVideoResultBlob(await response.blob());
+            const blob = await normalizeVideoResultBlob(await response.blob());
+            const draftTaskId = isSeedance25AssetsScript(plugin.script) && task.snapshot.metadata?.seedanceDraft ? response.headers.get("x-canvas-upstream-id") : null;
+            if (isSeedance25AssetsScript(plugin.script) && task.snapshot.metadata?.seedanceDraft && !draftTaskId) throw new Error("草稿文件已暂存，但后台未返回平台任务ID；请更新代理后再领取，未重新生成。");
+            pluginResult = draftTaskId ? { blob, draftTaskId } : blob;
         } else {
             const config = useConfigStore.getState().config;
-            pluginResult = await runModelPlugin({ ...plugin, config: resolveModelRequestConfig(config, task.snapshot.metadata?.model || config.model), signal, background: { projectId: task.projectId, nodeId: task.nodeId, itemId: task.itemId, snapshot: () => node, replay: true } });
+            pluginResult = await runModelPlugin({ ...plugin, config: resolveModelRequestConfig(config, task.snapshot.metadata?.model || config.model), signal, background: { projectId: task.projectId, nodeId: task.nodeId, itemId: task.itemId, billing: task.billing, superseded: task.superseded, snapshot: () => node, replay: true } });
         }
     }
     const response = task.plugin ? undefined : await waitBackgroundTask(task, signal);

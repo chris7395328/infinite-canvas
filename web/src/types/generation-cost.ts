@@ -15,6 +15,7 @@ export type GenerationCostSnapshot = {
     price?: ModelPrice;
     seconds?: number;
     submittedAt?: string;
+    prompt?: string;
 };
 
 export type GenerationCostRecord = GenerationCostSnapshot & {

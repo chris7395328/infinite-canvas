@@ -229,8 +229,10 @@ export async function imageToDataUrl(image: { url?: string; dataUrl?: string; st
 }
 
 export async function deleteStoredImages(keys: Iterable<string>) {
+    const { generationResourceKeys } = await import("@/stores/use-generation-resource-store");
+    const protectedKeys = new Set(await generationResourceKeys());
     await Promise.all(
-        Array.from(new Set(keys)).map(async (key) => {
+        Array.from(new Set(keys)).filter((key) => !protectedKeys.has(key)).map(async (key) => {
             const url = objectUrls.get(key);
             if (url) URL.revokeObjectURL(url);
             objectUrls.delete(key);
@@ -256,8 +258,10 @@ export async function cleanupUnusedImages(usedData: unknown) {
 /** Remove image files and previews that are not referenced by the supplied live data. */
 export async function cleanupImageFiles(usedKeys: Iterable<string>) {
     const used = new Set(usedKeys);
+    const { generationResourceKeys } = await import("@/stores/use-generation-resource-store");
+    for (const key of await generationResourceKeys()) used.add(key);
     const { backgroundTasks } = await import("@/services/api/background-tasks");
-    collectImageStorageKeys(await backgroundTasks(), used);
+    collectImageStorageKeys(await backgroundTasks(undefined, true), used);
     const unused: string[] = [];
     let bytes = 0;
     await store.iterate((value, key) => {

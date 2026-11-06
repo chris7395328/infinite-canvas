@@ -252,6 +252,7 @@ export function createMemoryTasks({ generateVod } = {}) {
             return;
         }
         if (req.method === "GET" && result && task.state === "completed") {
+            if (task.upstreamId) res.setHeader("x-canvas-upstream-id", String(task.upstreamId));
             if (storage && task.durable) {
                 const file = await storage.result(task);
                 res.writeHead(task.status, { "content-type": task.contentType, "content-length": file.size, "cache-control": "no-store" });

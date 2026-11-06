@@ -8,20 +8,30 @@ import { recordGenerationSubmitted } from "@/services/generation-cost";
 import { useGenerationCostStore } from "@/stores/use-generation-cost-store";
 
 export type BackgroundPlugin = { capability: "audio" | "image" | "text" | "video"; script: string; prompt?: string; images?: string[]; videos?: File[]; audios?: File[]; messages?: unknown[]; params?: Record<string, unknown>; index: number };
-export type BackgroundContext = { projectId: string; nodeId: string; itemId?: string; billing?: GenerationCostSnapshot; snapshot: () => CanvasNodeData | undefined; connections?: () => CanvasConnection[]; plugin?: BackgroundPlugin; replay?: boolean };
+export type BackgroundContext = { projectId: string; nodeId: string; itemId?: string; billing?: GenerationCostSnapshot; snapshot: () => CanvasNodeData | undefined; connections?: () => CanvasConnection[]; plugin?: BackgroundPlugin; replay?: boolean; superseded?: boolean };
 export type BackgroundKind = "gemini-audio" | "openai-audio" | "gemini-image" | "openai-image" | "gemini-text" | "openai-text" | "plugin-audio" | "plugin-image" | "plugin-text" | "plugin-video" | "openai-video" | "gemini-video" | "omni-video" | "moyu-video" | "xing933-video";
 export type BackgroundTask = {
     id: string; key: string; base: string; projectId: string; nodeId: string; itemId?: string;
     kind: BackgroundKind; format?: string; snapshot: CanvasNodeData; connections?: CanvasConnection[]; saved?: CanvasNodeData; released?: boolean; plugin?: BackgroundPlugin;
     billing?: GenerationCostSnapshot;
+    superseded?: boolean;
 };
 const journal = localforage.createInstance({ name: "infinite-canvas", storeName: "background_tasks" });
-export async function backgroundTasks(projectId?: string) {
+export async function backgroundTasks(projectId?: string, includeSuperseded = false) {
     const items: BackgroundTask[] = [];
-    await journal.iterate<BackgroundTask, void>((item) => { if (!projectId || item.projectId === projectId) items.push(item); });
+    await journal.iterate<BackgroundTask, void>((item) => { if ((!projectId || item.projectId === projectId) && (includeSuperseded || !item.superseded)) items.push(item); });
     return items;
 }
 export const forgetBackgroundTask = (id: string) => journal.removeItem(id);
+// Keep old credentials/results, but never merge an earlier attempt into the regenerated node.
+export async function supersedeNodeBackgroundTasks(projectId: string, nodeId: string) {
+    for (const task of await backgroundTasks(projectId)) if (task.nodeId === nodeId) {
+        await serializeTask(task.id, async () => {
+            const current = await journal.getItem<BackgroundTask>(task.id);
+            if (current) await journal.setItem(task.id, { ...current, superseded: true });
+        });
+    }
+}
 const address = (task: BackgroundTask) => `${task.base}/_tasks/${task.id}`;
 const taskHeaders = (task: BackgroundTask) => ({ "x-canvas-task-key": task.key });
 
@@ -59,7 +69,7 @@ export async function waitBackgroundTask(task: BackgroundTask, signal?: AbortSig
 export async function backgroundFetch(url: string, init: RequestInit, context: BackgroundContext | undefined, kind: BackgroundKind, format?: string) {
     const config = useConfigStore.getState().config;
     if (context?.replay) {
-        const receipt = (await backgroundTasks(context.projectId)).find((task) => task.nodeId === context.nodeId && task.itemId === context.itemId && task.plugin?.index === context.plugin?.index);
+        const receipt = (await backgroundTasks(context.projectId, true)).find((task) => task.nodeId === context.nodeId && task.itemId === context.itemId && task.plugin?.index === context.plugin?.index && Boolean(task.superseded) === Boolean(context.superseded) && (!context.billing || task.billing?.id === context.billing.id));
         if (!receipt) throw new Error("原脚本的这一步尚未提交或凭据已丢失；为避免重复计费，已停止，未发起新的生成请求。");
         return waitBackgroundTask(receipt, init.signal || undefined);
     }
@@ -114,6 +124,8 @@ export async function backgroundPost<T>(url: string, body: unknown, options: Axi
 export async function acknowledgeBackgroundTask(task: BackgroundTask, saved: CanvasNodeData) {
     return serializeTask(task.id, async () => {
         if (discarded.has(task.id)) return;
+        const current = await journal.getItem<BackgroundTask>(task.id);
+        if (current?.superseded && !task.superseded) return;
         // ACK only after browser persistence. Server results retain their fixed 24h TTL.
         await journal.setItem(task.id, { ...task, saved });
         const response = await fetch(address(task), { method: "DELETE", headers: taskHeaders(task) });

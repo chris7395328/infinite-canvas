@@ -4,8 +4,12 @@ import i18n from "@/i18n";
 import { buildApiUrl, normalizeLocalProxyUrl, withLocalProxy, type AiConfig, type ModelCapability } from "@/stores/use-config-store";
 import { backgroundFetch, backgroundPost, type BackgroundContext } from "./background-tasks";
 import tencentVodScript from "./tencent-vod-script.js?raw";
+import seedance25AssetsScript from "./seedance25-assets-script.js?raw";
+import { createScriptCosUpload } from "./script-cos";
+import { isSeedance25AssetsScript } from "@/lib/script-video-profile";
 
 export const getTencentVodScript = () => tencentVodScript.trim();
+export const getSeedance25AssetsScript = () => seedance25AssetsScript.trim();
 
 type RequestOptions = { signal?: AbortSignal; nextBackground?: () => BackgroundContext | undefined };
 
@@ -155,6 +159,7 @@ export async function runModelPlugin<T = unknown>(args: RunPluginArgs): Promise<
         "signal",
         "onDelta",
         "fetch",
+        "uploadToCos",
         `"use strict"; return (async () => {\n${args.script}\n})();`,
     ) as (...fnArgs: unknown[]) => Promise<T>;
     try {
@@ -179,6 +184,7 @@ export async function runModelPlugin<T = unknown>(args: RunPluginArgs): Promise<
             args.signal,
             args.onDelta,
             pluginFetch,
+            createScriptCosUpload(config, args.signal),
         );
     } catch (error) {
         if (error instanceof DOMException && error.name === "AbortError") throw error;
@@ -205,6 +211,7 @@ export function getPluginVariables(): PluginVariable[] {
         { name: "systemPrompt", type: "string", desc: i18n.t("modelPlugin.variables.systemPrompt") },
         { name: "reasoningEffort", type: '"auto" | "low" | "medium" | "high" | "xhigh"', desc: i18n.t("modelPlugin.variables.reasoningEffort"), capabilities: ["text"] },
         { name: "seedance", type: "object", desc: "火山方舟 Seedance 本地 bridge、私域素材库和 COS 配置", capabilities: ["video"] },
+        { name: "uploadToCos", type: "(file: Blob | dataURL, kind: image | video | audio, sourceChannelId?) => Promise<string>", desc: "使用已有COS配置上传到自己的存储；只发送给本地代理，不记录为生成计费。当前渠道优先，缺失时仅复用唯一一套已有COS", capabilities: ["video"] },
         { name: "tencentVod", type: "object", desc: "当前腾讯VOD渠道的凭据、SubAppId及素材设置，仅在用户明确生成时发送给自己的代理", capabilities: ["video"] },
         { name: "http", type: "object", desc: i18n.t("modelPlugin.variables.http") },
         { name: "request", type: "function", desc: i18n.t("modelPlugin.variables.request") },
@@ -249,6 +256,12 @@ export function getPluginAuthoringPrompt(capability: ModelCapability, modelName:
 }
 
 export type PluginTemplate = { label: string; script: string };
+
+export function isReplayablePluginScript(capability: ModelCapability, script: string) {
+    // This template performs asset preparation with global fetch. Replay would create
+    // new assets before reaching the stored video receipt, so only parse its result.
+    return !isSeedance25AssetsScript(script) && (script === getVolcengineSeedanceScript() || getPluginTemplates()[capability].some((template) => template.script === script));
+}
 
 /** Built-in script used by the Volcengine Seedance provider preset. */
 export function getVolcengineSeedanceScript() {
@@ -469,6 +482,7 @@ return await generateImage({
         },
     ],
     video: [
+        { label: "Seedance 2.5 平台素材库／草稿（JSON协议）", script: getSeedance25AssetsScript() },
         {
             label: i18n.t("modelPlugin.templates.openai"),
             script: `/**
