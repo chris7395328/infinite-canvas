@@ -8,7 +8,8 @@ import { dataUrlToFile } from "@/lib/image-utils";
 import { buildImageReferencePromptText } from "@/lib/image-reference-prompt";
 import { imageToDataUrl } from "@/services/image-storage";
 import { imageSizePresets, inferMediaScale } from "@/lib/media-size";
-import { isGptImage25Model, normalizeImageQualityForModel } from "@/lib/image-quality";
+import { supportsExtendedImageQuality, normalizeImageQualityForModel } from "@/lib/image-quality";
+import { gptImageRequestFields, imagePayloadMime, isGptImage26Model, supportsGptMarkup } from "@/lib/gpt-image";
 import { geminiImageCapabilities, geminiImageGenerationConfig } from "@/lib/gemini-image";
 import type { ReferenceImage } from "@/types/image";
 import { backgroundFetch, backgroundPost, type BackgroundContext, type BackgroundKind } from "./background-tasks";
@@ -123,7 +124,6 @@ const IMAGE_MIN_PIXELS = 655360;
 const IMAGE_MAX_PIXELS = 8294400;
 const IMAGE_MAX_EDGE = 3840;
 const IMAGE_MAX_RATIO = 3;
-const IMAGE_OUTPUT_FORMAT = "png";
 // 与 image-storage 的下载超时保持一致，避免接口挂起时节点一直停在生成中。
 const IMAGE_REQUEST_TIMEOUT_MS = 10 * 60_000;
 
@@ -136,7 +136,7 @@ function normalizeQuality(quality: string) {
 
 function normalizeRequestQuality(model: string, quality: string) {
     const normalized = normalizeQuality(quality);
-    if (!isGptImage25Model(model)) return normalized;
+    if (!supportsExtendedImageQuality(model)) return normalized;
     return normalizeImageQualityForModel(model, normalized);
 }
 
@@ -191,21 +191,23 @@ function validateImageSize(width: number, height: number) {
     if (pixels < IMAGE_MIN_PIXELS || pixels > IMAGE_MAX_PIXELS) throw new Error(apiText("imagePixelLimit"));
 }
 
-function resolveRequestSize(size: string) {
+function resolveRequestSize(size: string, gif = false) {
     const value = size.trim();
     if (!value || value.toLowerCase() === "auto") return undefined;
     const dimensions = parseImageDimensions(value);
     if (dimensions) {
-        validateImageSize(dimensions.width, dimensions.height);
+        if (gif) {
+            if (dimensions.width <= 0 || dimensions.height <= 0 || dimensions.width % 16 || dimensions.height % 16) throw new Error("GIF每帧宽高须为正整数且是16的倍数；总像素预算由API校验。");
+        } else validateImageSize(dimensions.width, dimensions.height);
         return `${dimensions.width}x${dimensions.height}`;
     }
     if (value.includes(":")) return resolveSize(value);
     throw new Error(apiText("invalidImageSizeFormat"));
 }
 
-function resolveImageSource(item: Record<string, unknown>) {
+function resolveImageSource(item: Record<string, unknown>, format: string) {
     if (typeof item.b64_json === "string" && item.b64_json) {
-        return `data:image/png;base64,${item.b64_json}`;
+        return `data:${imagePayloadMime(item.b64_json, format)};base64,${item.b64_json}`;
     }
     if (typeof item.url === "string" && item.url) {
         return item.url;
@@ -213,7 +215,7 @@ function resolveImageSource(item: Record<string, unknown>) {
     return null;
 }
 
-export function parseImagePayload(payload: ImageApiResponse) {
+export function parseImagePayload(payload: ImageApiResponse, format = "png") {
     if (typeof payload.code === "number" && payload.code !== 0) {
         throw new Error(payload.msg || apiText("requestFailed"));
     }
@@ -223,7 +225,7 @@ export function parseImagePayload(payload: ImageApiResponse) {
         || (payload as Record<string, unknown>).results as Array<Record<string, unknown>> | undefined
         || [];
     const images = imageList
-        .map(resolveImageSource)
+        .map((item) => resolveImageSource(item, String((payload as Record<string, unknown>).output_format || format)))
         .filter((value): value is string => Boolean(value))
         .map((dataUrl) => ({ id: nanoid(), dataUrl }));
 
@@ -712,7 +714,7 @@ function imagePluginParams(config: AiConfig, model: string, count: number) {
     if (geminiImageCapabilities(model)) return { generationConfig: geminiImageGenerationConfig(model, config), resolution: (config.geminiImageSize || "1K").toLowerCase(), count };
     const quality = normalizeRequestQuality(model, config.quality);
     const background = normalizeBackground(config.background);
-    return { size: resolveRequestSize(config.size), resolution: inferMediaScale(config.size), quality, count, ...(background ? { background } : {}) };
+    return { size: resolveRequestSize(config.size, isGptImage26Model(model) && config.gptImage?.format === "gif"), resolution: inferMediaScale(config.size), quality, count, ...(background ? { background } : {}), ...(isGptImage26Model(model) ? gptImageRequestFields(model, config.gptImage, { count, transparent: Boolean(background) }) : {}) };
 }
 
 export async function requestGeneration(config: AiConfig, prompt: string, options?: RequestOptions) {
@@ -745,7 +747,8 @@ export async function requestGeneration(config: AiConfig, prompt: string, option
         }
     }
     const quality = normalizeRequestQuality(requestConfig.model, config.quality);
-    const requestSize = resolveRequestSize(config.size);
+    const imageFields = gptImageRequestFields(requestConfig.model, config.gptImage, { count: n, transparent: config.background === "transparent" });
+    const requestSize = resolveRequestSize(config.size, imageFields.output_format === "gif");
     const background = normalizeBackground(config.background);
     try {
         const response = await backgroundPost<ImageApiResponse>(
@@ -759,7 +762,7 @@ export async function requestGeneration(config: AiConfig, prompt: string, option
                 ...(background ? { background } : {}),
                 // gpt-image models reject response_format; they always return b64.
                 ...(/gpt-image/.test(requestConfig.model) ? {} : { response_format: "b64_json" }),
-                output_format: IMAGE_OUTPUT_FORMAT,
+                ...imageFields,
             },
             {
                 headers: aiHeaders(requestConfig, "application/json"),
@@ -768,7 +771,7 @@ export async function requestGeneration(config: AiConfig, prompt: string, option
             },
             options?.background, "openai-image",
         );
-        const images = await parseImagePayload(response.data);
+        const images = await parseImagePayload(response.data, String(imageFields.output_format));
         return images;
     } catch (error) {
         throw new Error(readAxiosError(error, apiText("requestFailed")));
@@ -808,17 +811,24 @@ export async function requestEdit(config: AiConfig, prompt: string, references: 
     }
 
     const quality = normalizeRequestQuality(requestConfig.model, config.quality);
-    const requestSize = resolveRequestSize(config.size);
+    const markupId = supportsGptMarkup(requestConfig.model) ? config.gptImage?.markupNodeId : undefined;
+    const markup = markupId ? references.find((image) => image.id === markupId) : undefined;
+    if (markupId && !markup) throw new Error("标注图层节点未连接或已删除，请重新连接原透明PNG标注节点；尚未生成。");
+    const inputReferences = markup ? references.filter((image) => image.id !== markup.id) : references;
+    if (!inputReferences.length || inputReferences.length > 16 && supportsGptMarkup(requestConfig.model)) throw new Error("图片编辑需1～16张输入图，标注图层不计入参考图数量。");
+    if (inputReferences.some((image) => image.type === "image/svg+xml" || image.dataUrl.startsWith("data:image/svg+xml"))) throw new Error("官方图片编辑不接受SVG参考图；请先明确转换为PNG再连接，原矢量文件不会被改写。");
+    const imageFields = gptImageRequestFields(requestConfig.model, config.gptImage, { edit: true, count: n, transparent: config.background === "transparent" });
+    const requestSize = resolveRequestSize(config.size, imageFields.output_format === "gif");
     const background = normalizeBackground(config.background);
     const formData = new FormData();
     formData.set("model", requestConfig.model);
-    formData.set("prompt", withSystemPrompt(requestConfig, requestPrompt));
+    formData.set("prompt", withSystemPrompt(requestConfig, markup ? buildImageReferencePromptText(prompt, inputReferences) : requestPrompt));
     formData.set("n", String(n));
     // gpt-image models reject response_format; they always return b64.
     if (!/gpt-image/.test(requestConfig.model)) {
         formData.set("response_format", "b64_json");
     }
-    formData.set("output_format", IMAGE_OUTPUT_FORMAT);
+    for (const [key, value] of Object.entries(imageFields)) formData.set(key, String(value));
     if (quality) {
         formData.set("quality", quality);
     }
@@ -828,13 +838,19 @@ export async function requestEdit(config: AiConfig, prompt: string, references: 
     if (background) {
         formData.set("background", background);
     }
-    const files = await Promise.all(references.map(async (image) => dataUrlToFile({ ...image, dataUrl: await imageToDataUrl(image) })));
+    const files = await Promise.all(inputReferences.map(async (image) => dataUrlToFile({ ...image, dataUrl: await imageToDataUrl(image) })));
+    if (files.some((file) => file.type === "image/svg+xml")) throw new Error("官方图片编辑不接受SVG文件；请先明确转换为PNG再连接。");
+    if (markup) {
+        const file = dataUrlToFile({ ...markup, dataUrl: await imageToDataUrl(markup), name: "markup.png" });
+        if (file.type !== "image/png") throw new Error("标注层必须是与第一张图同尺寸的透明PNG。");
+        formData.set("markup", file);
+    }
     const imageField = files.length > 1 ? "image[]" : "image";
     files.forEach((file) => formData.append(imageField, file));
 
     try {
         const response = await backgroundPost<ImageApiResponse>(aiApiUrl(requestConfig, "/images/edits"), formData, { headers: aiHeaders(requestConfig), signal: options?.signal, timeout: IMAGE_REQUEST_TIMEOUT_MS }, options?.background, "openai-image");
-        const images = await parseImagePayload(response.data);
+        const images = await parseImagePayload(response.data, String(imageFields.output_format));
         return images;
     } catch (error) {
         throw new Error(readAxiosError(error, apiText("requestFailed")));

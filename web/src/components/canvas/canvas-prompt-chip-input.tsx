@@ -6,7 +6,8 @@ import { FileText, Image as ImageIcon, Music2, Video } from "lucide-react";
 
 import i18n from "@/i18n";
 import { canvasThemes } from "@/lib/canvas-theme";
-import { isImeComposing, isPlainEnterKey } from "@/lib/keyboard-event";
+import { isImeComposing } from "@/lib/keyboard-event";
+import { canvasEditorText } from "@/lib/canvas/canvas-editor-text";
 import { useThemeStore } from "@/stores/use-theme-store";
 import type { CanvasResourceReference } from "@/lib/canvas/canvas-resource-references";
 
@@ -14,7 +15,6 @@ type Props = {
     value: string;
     references: CanvasResourceReference[];
     onChange: (value: string) => void;
-    onSubmit?: () => void;
     className?: string;
     style?: CSSProperties;
     placeholder?: string;
@@ -31,7 +31,7 @@ type Token =
 
 // Prompt-panel contentEditable input: @ references embed thumbnail chips instead of plain label text.
 // Serialization converts chips back to reference labels so the generated value matches the former textarea semantics.
-export function CanvasPromptChipInput({ value, references, onChange, onSubmit, className, style, placeholder }: Props) {
+export function CanvasPromptChipInput({ value, references, onChange, className, style, placeholder }: Props) {
     const theme = canvasThemes[useThemeStore((state) => state.theme)];
     const editorRef = useRef<HTMLDivElement>(null);
     const composingRef = useRef(false);
@@ -153,7 +153,7 @@ export function CanvasPromptChipInput({ value, references, onChange, onSubmit, c
                 }}
                 onKeyDown={(event: KeyboardEvent<HTMLDivElement>) => {
                     event.stopPropagation();
-                    if (isImeComposing(event)) return;
+                    if (composingRef.current || isImeComposing(event)) return;
                     if (mention && candidates.length) {
                         if (event.key === "ArrowDown") {
                             event.preventDefault();
@@ -179,11 +179,6 @@ export function CanvasPromptChipInput({ value, references, onChange, onSubmit, c
                     if ((event.key === "Backspace" || event.key === "Delete") && deleteAdjacentReference(event.key)) {
                         event.preventDefault();
                         requestAnimationFrame(syncFromEditor);
-                        return;
-                    }
-                    if (isPlainEnterKey(event) && onSubmit) {
-                        event.preventDefault();
-                        onSubmit();
                         return;
                     }
                     requestAnimationFrame(syncMention);
@@ -301,20 +296,7 @@ function createReferenceChip(reference: CanvasResourceReference, theme: (typeof 
 }
 
 function serializeEditor(editor: HTMLElement) {
-    return serializeNodes(editor.childNodes).replace(/﻿/g, "");
-}
-
-function serializeNodes(nodes: NodeListOf<ChildNode>) {
-    let result = "";
-    nodes.forEach((node) => {
-        if (node.nodeType === Node.TEXT_NODE) result += node.textContent || "";
-        if (!(node instanceof HTMLElement)) return;
-        const label = node.dataset.refLabel;
-        if (label) result += label;
-        else if (node.tagName === "BR") result += "\n";
-        else result += serializeNodes(node.childNodes);
-    });
-    return result;
+    return canvasEditorText(editor.childNodes, (element) => element.dataset.refLabel);
 }
 
 function removeActiveMention() {

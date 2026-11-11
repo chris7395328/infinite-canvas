@@ -10,7 +10,7 @@ import { audioMetadata, imageMetadata, videoMetadata } from "@/lib/canvas/canvas
 import type { CanvasNodeData, CanvasNodeImage, CanvasNodeText } from "@/types/canvas";
 import { normalizeVideoResultBlob } from "@/lib/video-result-blob";
 import { recordReceivedGeneration } from "./generation-cost";
-import { isSeedance25AssetsScript } from "@/lib/script-video-profile";
+import { isSeedanceDraftScript } from "@/lib/script-video-profile";
 
 async function recordRecoveredCost(task: BackgroundTask, saved: CanvasNodeData) {
     const result = task.itemId ? saved.metadata?.images?.find((item) => item.id === task.itemId) || saved.metadata?.texts?.find((item) => item.id === task.itemId) : saved.metadata;
@@ -52,8 +52,8 @@ export async function recoverBackgroundResult(task: BackgroundTask, node: Canvas
             if (task.kind !== "plugin-video" || plugin.capability !== "video" || receipts.length !== 1) throw new Error("此脚本需专用结果解析（非单步视频任务）；后台结果仍保留，未运行脚本或重新生成。");
             const response = await waitBackgroundTask(task, signal);
             const blob = await normalizeVideoResultBlob(await response.blob());
-            const draftTaskId = isSeedance25AssetsScript(plugin.script) && task.snapshot.metadata?.seedanceDraft ? response.headers.get("x-canvas-upstream-id") : null;
-            if (isSeedance25AssetsScript(plugin.script) && task.snapshot.metadata?.seedanceDraft && !draftTaskId) throw new Error("草稿文件已暂存，但后台未返回平台任务ID；请更新代理后再领取，未重新生成。");
+            const draftTaskId = isSeedanceDraftScript(plugin.script) && task.snapshot.metadata?.seedanceDraft ? response.headers.get("x-canvas-upstream-id") : null;
+            if (isSeedanceDraftScript(plugin.script) && task.snapshot.metadata?.seedanceDraft && !draftTaskId) throw new Error("草稿文件已暂存，但后台未返回平台任务ID；请更新代理后再领取，未重新生成。");
             pluginResult = draftTaskId ? { blob, draftTaskId } : blob;
         } else {
             const config = useConfigStore.getState().config;
@@ -74,7 +74,7 @@ export async function recoverBackgroundResult(task: BackgroundTask, node: Canvas
         saved = { ...node, metadata: { ...node.metadata, ...audioMetadata(audio), errorDetails: undefined } };
     } else if (task.kind.endsWith("image")) {
         const payload = task.plugin ? undefined : await response!.json();
-        const image = task.plugin ? { id: task.itemId || node.id, dataUrl: normalizePluginImages(pluginResult)[0] } : (task.kind === "gemini-image" ? parseGeminiImagePayload(payload) : parseImagePayload(payload))[0];
+        const image = task.plugin ? { id: task.itemId || node.id, dataUrl: normalizePluginImages(pluginResult)[0] } : (task.kind === "gemini-image" ? parseGeminiImagePayload(payload) : parseImagePayload(payload, task.snapshot.metadata?.gptImage?.format))[0];
         if (!image?.dataUrl) throw new Error("后台结果未包含可识别的图片，未重新生成。");
         const uploaded = await uploadImage(image.dataUrl, { signal });
         const item: CanvasNodeImage = { id: task.itemId || image.id, status: "success", content: uploaded.url, storageKey: uploaded.storageKey, naturalWidth: uploaded.width, naturalHeight: uploaded.height, bytes: uploaded.bytes, mimeType: uploaded.mimeType };

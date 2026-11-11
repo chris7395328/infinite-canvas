@@ -1,6 +1,7 @@
 import { setTimeout as pause } from "node:timers/promises";
+import { providerError } from "./provider-error.js";
 
-const failure = (value) => (typeof value?.error === "string" ? value.error : value?.error?.message) || value?.fail_reason || value?.message || "API 返回生成失败";
+const failure = (value) => providerError(value, value?.fail_reason || "API 返回生成失败");
 const unwrap = (value) => value?.data && typeof value.data === "object" && !Array.isArray(value.data) ? value.data : value;
 const resultUrl = (value) => value?.content?.video_url || value?.video_url || value?.result_url || value?.url;
 
@@ -18,12 +19,17 @@ export async function resolveVideoTask(protocol, initial, target, headers, task,
     let pollUrl;
     if (protocol === "openai" || protocol === "moyu") pollUrl = `${target.href.replace(/\/$/, "")}/${encodeURIComponent(id)}`;
     if (protocol === "json-video") pollUrl = `${target.href.replace(/\/videos\/generations\/?$/, "/videos")}/${encodeURIComponent(id)}`;
+    if (protocol === "seedance-series") pollUrl = /\/final-conversions\/[^/]+\/?$/.test(base.pathname)
+        ? new URL(`../final-videos/${encodeURIComponent(id)}`, new URL("./", target)).href
+        : `${target.href.replace(/\/$/, "")}/${encodeURIComponent(id)}`;
     if (protocol === "gemini") pollUrl = new URL(`../${String(id).replace(/^\//, "")}`, new URL("./", target)).href;
     for (;;) {
         task.controller.signal.throwIfAborted();
         if (protocol === "json-video" && (value?.code === "0" || value?.code === 0)) throw new Error(`API 返回请求失败：${failure(value)}`);
         const status = String(value?.status || value?.stage || "").toLowerCase();
-        if (value?.error || value?.data?.error || ["failed", "failure", "cancelled", "canceled", "error", "incomplete", "expired"].includes(status)) throw new Error(`API 返回生成失败：${failure(value?.data?.error ? value.data : value)}`);
+        if (value?.error || value?.data?.error || ["failed", "failure", "cancelled", "canceled", "error", "incomplete", "expired"].includes(status)) throw new Error(`API 返回生成失败：${failure(value?.data?.error ? value.data : value)}${protocol === "seedance-series" && id ? `；平台任务ID：${id}` : ""}`);
+        // This explicit protocol uses its own authenticated download endpoint, not a guessed public URL.
+        if (protocol === "seedance-series" && status === "completed") return { url: `${pollUrl}/content`, headers };
         if (protocol === "omni") {
             const output = value?.output_video || value?.steps?.filter((step) => step.type === "model_output").flatMap((step) => step.content || []).find((block) => block.type === "video");
             if (output?.data) return { data: output.data, mime: output.mime_type || "video/mp4" };

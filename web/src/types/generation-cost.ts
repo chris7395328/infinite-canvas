@@ -16,10 +16,13 @@ export type GenerationCostSnapshot = {
     seconds?: number;
     submittedAt?: string;
     prompt?: string;
+    parameters?: Record<string, string | number | boolean>;
 };
 
 export type GenerationCostRecord = GenerationCostSnapshot & {
     status: "pending" | "success" | "cancelled";
     submittedAt: string;
     receivedAt?: string;
+    originalPrice?: ModelPrice | null;
+    repricedAt?: string;
 };

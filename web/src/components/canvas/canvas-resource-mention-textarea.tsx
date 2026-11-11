@@ -4,7 +4,7 @@ import { createPortal } from "react-dom";
 import { FileText, Image as ImageIcon, Music2, Video } from "lucide-react";
 
 import { canvasThemes } from "@/lib/canvas-theme";
-import { isImeComposing, isPlainEnterKey } from "@/lib/keyboard-event";
+import { isImeComposing } from "@/lib/keyboard-event";
 import { useThemeStore } from "@/stores/use-theme-store";
 import type { CanvasResourceReference } from "@/lib/canvas/canvas-resource-references";
 
@@ -13,16 +13,15 @@ type MentionState = {
     query: string;
 };
 
-type Props = Omit<TextareaHTMLAttributes<HTMLTextAreaElement>, "onChange" | "value"> & {
+type Props = Omit<TextareaHTMLAttributes<HTMLTextAreaElement>, "onChange" | "value" | "onSubmit"> & {
     value: string;
     references: CanvasResourceReference[];
     onChange: (value: string) => void;
-    onSubmit?: () => void;
     containerClassName?: string;
     highlightLabels?: boolean;
 };
 
-export const CanvasResourceMentionTextarea = forwardRef<HTMLTextAreaElement, Props>(function CanvasResourceMentionTextarea({ value, references, onChange, onSubmit, onKeyDown, className, containerClassName, style, highlightLabels = true, ...props }, forwardedRef) {
+export const CanvasResourceMentionTextarea = forwardRef<HTMLTextAreaElement, Props>(function CanvasResourceMentionTextarea({ value, references, onChange, onKeyDown, className, containerClassName, style, highlightLabels = true, ...props }, forwardedRef) {
     const theme = canvasThemes[useThemeStore((state) => state.theme)];
     const textareaRef = useRef<HTMLTextAreaElement | null>(null);
     const overlayRef = useRef<HTMLDivElement | null>(null);
@@ -171,11 +170,6 @@ export const CanvasResourceMentionTextarea = forwardRef<HTMLTextAreaElement, Pro
                             closeMention();
                             return;
                         }
-                    }
-                    if (isPlainEnterKey(event) && onSubmit) {
-                        event.preventDefault();
-                        onSubmit();
-                        return;
                     }
                     onKeyDown?.(event);
                 }}

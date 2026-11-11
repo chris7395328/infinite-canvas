@@ -4,12 +4,13 @@ import { persist } from "zustand/middleware";
 import { nanoid } from "nanoid";
 
 import i18n from "@/i18n";
+import type { GptImageSettings } from "@/lib/gpt-image";
 import { DEPLOYED_PROXY_URL } from "@/constant/runtime-config";
 import { normalizeImageQualityForModel } from "@/lib/image-quality";
 import { normalizeModelPrice, normalizeResolutionPrices } from "@/lib/generation-cost";
 import type { ModelPrice, ResolutionPrice } from "@/types/generation-cost";
 import { defaultTencentVodConfig, TENCENT_VOD_BASE_URL, type TencentVodConfig } from "@/lib/tencent-vod";
-import { isSeedance25AssetsScript } from "@/lib/script-video-profile";
+import { isSeedance25AssetsScript, isSeedanceSeriesScript, seedanceSeriesCapabilities } from "@/lib/script-video-profile";
 
 export type ApiCallFormat = "openai" | "gemini" | "volcengine" | "tencent-vod";
 export type ModelCapability = "image" | "video" | "text" | "audio";
@@ -61,6 +62,10 @@ export type SeedanceConfig = {
     modelVersion?: "2.0" | "2.5";
     draftTaskId?: string;
     formalResolution?: string;
+    searchEnabled?: boolean;
+    videoDuration?: string;
+    draftQuote?: string;
+    draftQuoteExpiresAt?: number;
 };
 
 export type AiConfig = {
@@ -92,6 +97,7 @@ export type AiConfig = {
     models: string[];
     quality: string;
     geminiImageSize?: string;
+    gptImage?: GptImageSettings;
     geminiAspectRatio?: string;
     geminiThinkingLevel?: string;
     size: string;
@@ -551,6 +557,8 @@ export function seedanceModelVersion(config: AiConfig, value: string): "2.0" | "
 
 export function isVolcengineSeedance25(config: AiConfig) {
     const channel = resolveModelChannel(config, config.model);
+    const script = findChannelModel(config, config.model)?.model.script;
+    if (isSeedanceSeriesScript(script)) return seedanceSeriesCapabilities(script, config.model)?.v25 === true;
     // Channels saved before the dedicated Volcengine format was added kept the
     // OpenAI format, but already pointed at Ark's v3 endpoint. Keep those
     // existing local configurations working rather than hiding 2.5 controls.

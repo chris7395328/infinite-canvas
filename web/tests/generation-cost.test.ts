@@ -3,13 +3,14 @@ import type { GenerationCostRecord } from "../src/types/generation-cost";
 import type { CanvasNodeData } from "../src/types/canvas";
 
 const data = new Map<string, unknown>();
+let failingWriteId: string | undefined;
 const stores = new Map<string, Map<string, unknown>>([["generation_costs", data]]);
 mock.module("localforage", () => ({ default: { config: () => {}, createInstance: ({ storeName }: { storeName: string }) => {
     if (!stores.has(storeName)) stores.set(storeName, new Map());
     const store = stores.get(storeName)!;
     return {
         getItem: async (key: string) => structuredClone(store.get(key) ?? null),
-        setItem: async (key: string, value: unknown) => { store.set(key, structuredClone(value)); },
+        setItem: async (key: string, value: unknown) => { if (key === failingWriteId) throw new Error("模拟存储失败"); store.set(key, structuredClone(value)); },
         iterate: async (callback: (value: unknown) => void) => { for (const value of store.values()) callback(structuredClone(value)); },
     };
 } } }));
@@ -219,4 +220,58 @@ test("uploading a replacement file into a node cannot confirm the original gener
         await acknowledgeSavedBackgroundTasks("replacement", [uploaded]);
         expect(record(snapshot.id).status).toBe("pending");
     } finally { globalThis.fetch = originalFetch; stores.get("background_tasks")!.clear(); }
+});
+
+test("manual repricing covers persisted full history, matches exact channel/model and keeps submission facts", async () => {
+    const ids = ["reprice-old", "reprice-image", "reprice-missing", "reprice-auto", "reprice-cancelled"];
+    const base = { ...createGenerationCostSnapshot(config, "old-project", "node"), submittedAt: "2020-01-01T00:00:00Z" };
+    const entries: GenerationCostRecord[] = [
+        { ...base, id: ids[0], status: "success", receivedAt: "2020-01-02T00:00:00Z", resolution: "720p" },
+        { ...base, id: ids[1], capability: "image", modelName: "picture", status: "success", resolution: "2K", size: "2048x1152", price: { unit: "request", amount: "0.1" } },
+        { ...base, id: ids[2], channelId: "removed-channel", status: "success" },
+        { ...base, id: ids[3], status: "pending", seconds: undefined, resolution: "720p", price: undefined },
+        { ...base, id: ids[4], status: "cancelled", resolution: "720p" },
+    ];
+    for (const entry of entries) data.set(entry.id, structuredClone(entry));
+    useGenerationCostStore.setState({ records: [] }); // Full history is on disk, not just the visible filter.
+    const channels = config.channels.map((channel) => ({ ...channel, models: [
+        { ...channel.models[0], price: undefined, resolutionPrices: [{ resolution: "720p", unit: "second" as const, amount: channel.id === "relay-b" ? "1" : "99" }] },
+        { name: "picture", capability: "image" as const, resolutionPrices: [{ resolution: "2K", unit: "request" as const, amount: "3" }, { resolution: "2048x1152", unit: "request" as const, amount: "2" }] },
+    ] }));
+    const result = await useGenerationCostStore.getState().reprice(channels);
+    expect(result.updated).toBeGreaterThanOrEqual(4);
+    expect(result.skipped).toBeGreaterThanOrEqual(1);
+    expect(generationCostMicros(record(ids[0]))).toBe(8000000);
+    expect(record(ids[0])).toMatchObject({ submittedAt: base.submittedAt, receivedAt: "2020-01-02T00:00:00Z", seconds: 8, status: "success", originalPrice: base.price });
+    expect(generationCostMicros(record(ids[1]))).toBe(2000000); // Exact submitted pixels win.
+    expect(record(ids[2])).toEqual(entries[2]);
+    expect(generationCostMicros(record(ids[3]))).toBeUndefined();
+    expect(record(ids[3]).originalPrice).toBeNull();
+    expect(record(ids[4]).status).toBe("cancelled");
+    expect(JSON.stringify(data.get(ids[0]))).not.toContain("private-b");
+    // A subsequent receipt cannot restore the frozen old snapshot price.
+    await useGenerationCostStore.getState().write(entries[4], "success");
+    expect(record(ids[4]).price?.amount).toBe("1");
+    await useGenerationCostStore.getState().reprice(channels.map((channel) => ({ ...channel, models: channel.models.map((model) => ({ ...model, resolutionPrices: undefined, price: undefined })) })));
+    expect(record(ids[0]).price).toBeUndefined(); // Removing a price is not a silent zero or old-rate fallback.
+    expect(record(ids[0]).originalPrice).toEqual(base.price);
+    expect(record(ids[0]).repricedAt).toBeTruthy();
+    useGenerationCostStore.setState({ records: [] });
+    await useGenerationCostStore.getState().load();
+    expect(record(ids[0]).originalPrice).toEqual(base.price);
+});
+
+test("repricing storage failure is visible, preserves saved records and allows a safe repeat", async () => {
+    const entry: GenerationCostRecord = { ...createGenerationCostSnapshot(config, "history", "failure"), id: "reprice-storage-failure", status: "success", submittedAt: "2020-02-01T00:00:00Z" };
+    data.set(entry.id, structuredClone(entry));
+    failingWriteId = entry.id;
+    try {
+        await expect(useGenerationCostStore.getState().reprice(config.channels)).rejects.toThrow("模拟存储失败");
+        expect(data.get(entry.id)).toEqual(entry);
+        expect(useGenerationCostStore.getState().error).toContain("未全部完成");
+        expect(useGenerationCostStore.getState().repricing).toBe(false);
+    } finally { failingWriteId = undefined; }
+    await useGenerationCostStore.getState().reprice(config.channels);
+    expect(record(entry.id)).toMatchObject({ originalPrice: entry.price, status: "success", submittedAt: entry.submittedAt });
+    expect(useGenerationCostStore.getState().error).toBe("");
 });

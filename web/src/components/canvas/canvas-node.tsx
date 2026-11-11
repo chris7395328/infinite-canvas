@@ -768,7 +768,7 @@ function ImageContent({
     const primaryImageId = node.metadata?.primaryImageId || images[0]?.id;
     const primaryImage = images.find((image) => image.id === primaryImageId);
     const primaryContent = primaryImage?.content || node.metadata?.content;
-    const primaryPreviewUrl = previewUrlFor(primaryImage?.storageKey || node.metadata?.storageKey);
+    const primaryPreviewUrl = (primaryImage?.mimeType || node.metadata?.mimeType) === "image/gif" ? undefined : previewUrlFor(primaryImage?.storageKey || node.metadata?.storageKey);
     const primarySource = primaryContent
         ? pickImageSource({
               previewUrl: primaryPreviewUrl,
@@ -844,7 +844,7 @@ function ExpandedImageCard({ node, image, index, scale, onView, onSetPrimary, on
     const y = (row - rows + 1) * (node.height + 18);
     const source = image.content
         ? pickImageSource({
-              previewUrl: previewUrlFor(image.storageKey),
+              previewUrl: image.mimeType === "image/gif" ? undefined : previewUrlFor(image.storageKey),
               originalUrl: image.content,
               naturalWidth: image.naturalWidth,
               naturalHeight: image.naturalHeight,

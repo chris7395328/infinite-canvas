@@ -4,6 +4,7 @@ import { nanoid } from "nanoid";
 import i18n from "@/i18n";
 import { withLocalProxy } from "@/stores/use-config-store";
 import { createImageThumbnail } from "@/lib/image-thumbnail";
+import { sanitizeSvg } from "@/lib/safe-svg";
 
 export type UploadedImage = {
     url: string;
@@ -50,6 +51,7 @@ export async function uploadImage(input: string | Blob, options?: ImageReadOptio
 }
 
 async function storeImage(blob: Blob, options?: ImageReadOptions): Promise<UploadedImage> {
+    if (blob.type.split(";")[0] === "image/svg+xml") blob = new Blob([sanitizeSvg(await blob.text())], { type: "image/svg+xml" });
     const storageKey = `image:${nanoid()}`;
     const url = URL.createObjectURL(blob);
     try {
@@ -282,6 +284,7 @@ export async function cleanupImageFiles(usedKeys: Iterable<string>) {
 }
 
 export function collectImageStorageKeys(value: unknown, keys = new Set<string>()) {
+    if (typeof value === "string" && value.startsWith("image:")) { keys.add(value); return keys; }
     if (!value || typeof value !== "object") return keys;
     if ("storageKey" in value && typeof value.storageKey === "string" && value.storageKey.startsWith("image:")) keys.add(value.storageKey);
     Object.values(value).forEach((item) => (Array.isArray(item) ? item.forEach((child) => collectImageStorageKeys(child, keys)) : collectImageStorageKeys(item, keys)));

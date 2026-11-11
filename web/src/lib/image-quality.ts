@@ -28,11 +28,13 @@ function bareModelName(model: string | undefined) {
 
 /** OpenAI documents the same quality enum for the two GPT Image 2.5 variants. */
 export function isGptImage25Model(model: string | undefined) {
-    return /^gpt-image-2\.5-(?:flare|sunburst)$/.test(bareModelName(model));
+    return /^gpt-image-2\.5-(?:flare|sunburst)(?:-2026-09-08)?$/.test(bareModelName(model));
 }
 
+export const supportsExtendedImageQuality = (model: string | undefined) => isGptImage25Model(model) || /^gpt-image-2\.6-(?:flare|sunburst)$/.test(bareModelName(model));
+
 export function getImageQualityOptions(model: string | undefined): ImageQualityOption[] {
-    return isGptImage25Model(model) ? GPT_IMAGE_25_QUALITY_OPTIONS : DEFAULT_IMAGE_QUALITY_OPTIONS;
+    return supportsExtendedImageQuality(model) ? GPT_IMAGE_25_QUALITY_OPTIONS : DEFAULT_IMAGE_QUALITY_OPTIONS;
 }
 
 export function isImageQualitySupported(model: string | undefined, quality: string | undefined) {
@@ -42,6 +44,6 @@ export function isImageQualitySupported(model: string | undefined, quality: stri
 
 /** GPT Image 2.5 defaults to auto, the safe fallback for stale node metadata. */
 export function normalizeImageQualityForModel(model: string | undefined, quality: string | undefined) {
-    if (!isGptImage25Model(model)) return (quality || "").trim().toLowerCase();
+    if (!supportsExtendedImageQuality(model)) return (quality || "").trim().toLowerCase();
     return isImageQualitySupported(model, quality) ? (quality || "").trim().toLowerCase() : "auto";
 }

@@ -2,8 +2,11 @@ import { afterAll, expect, mock, test } from "bun:test";
 import type { CanvasNodeData } from "../src/types/canvas";
 import type { CanvasProject } from "../src/stores/canvas/use-canvas-store";
 import type { BackgroundTask } from "../src/services/api/background-tasks";
+import type { GenerationResource } from "../src/stores/use-generation-resource-store";
 
 const stores = new Map<string, Map<string, unknown>>();
+const downloads: { blob: Blob; name: string }[] = [];
+mock.module("file-saver", () => ({ saveAs: (blob: Blob, name: string) => downloads.push({ blob, name }) }));
 const previousStorage = Object.getOwnPropertyDescriptor(globalThis, "localStorage");
 Object.defineProperty(globalThis, "localStorage", { configurable: true, value: { getItem: () => null, setItem: () => {}, removeItem: () => {} } });
 afterAll(() => {
@@ -24,7 +27,7 @@ mock.module("localforage", () => ({ default: { config: () => {}, createInstance:
 const { regenerateInPlace, resetGenerationResult } = await import("../src/lib/canvas/canvas-regeneration");
 const { CanvasNodeType } = await import("../src/types/canvas");
 const { collectExistingGenerationResources, preserveNodeResources } = await import("../src/services/generation-resources");
-const { useGenerationResourceStore, generationResourceKeys, saveGenerationResource } = await import("../src/stores/use-generation-resource-store");
+const { useGenerationResourceStore, generationResourceKeys, saveGenerationResource, removeGenerationResources } = await import("../src/stores/use-generation-resource-store");
 const { backgroundTasks, backgroundFetch, supersedeNodeBackgroundTasks } = await import("../src/services/api/background-tasks");
 const node = (type = CanvasNodeType.Image): CanvasNodeData => ({ id: "node", type, title: "结果", position: { x: 100, y: 200 }, width: 340, height: 200, metadata: { status: "success", model: "relay::selected", prompt: "原提示词", content: "blob:old", storageKey: "image:old" } });
 
@@ -122,4 +125,51 @@ test("archived receipt replay only GETs its own result, never the new attempt or
         expect(await result.text()).toBe("old-result");
         expect(urls).toEqual(["https://fixture-proxy.example/_tasks/old-receipt", "https://fixture-proxy.example/_tasks/old-receipt/result"]);
     } finally { globalThis.fetch = previous; }
+});
+
+test("history filters project/type/inclusive calendar dates and groups descending local dates", async () => {
+    const { filterGenerationHistory, groupGenerationHistory } = await import("../src/lib/generation-resource-history");
+    const base = { projectTitle: "项目", nodeId: "node", title: "素材", prompt: "提示", model: "model", content: "" };
+    const items: GenerationResource[] = [
+        { ...base, id: "a", projectId: "p1", kind: "video", createdAt: "2026-11-01T00:00:00" },
+        { ...base, id: "b", projectId: "p1", kind: "image", createdAt: "2026-11-01T23:59:59" },
+        { ...base, id: "c", projectId: "p2", kind: "audio", createdAt: "2026-11-02T12:00:00" },
+    ];
+    expect(filterGenerationHistory(items, { projectId: "p1", from: "2026-11-01", to: "2026-11-01" }).map((entry) => entry.id)).toEqual(["b", "a"]);
+    expect(filterGenerationHistory(items, { kind: "video" }).map((entry) => entry.id)).toEqual(["a"]);
+    expect(groupGenerationHistory(filterGenerationHistory(items, {})).map((group) => [group.date, group.items.length])).toEqual([["2026-11-02", 1], ["2026-11-01", 2]]);
+    expect(filterGenerationHistory(items, { projectId: "missing" })).toEqual([]);
+});
+
+test("batch download creates one ZIP with unique valid filenames; insertion payloads preserve type and layout offsets", async () => {
+    const { downloadGenerationResources, generationResourcePayload } = await import("../src/services/generation-resource-files");
+    const { readZip } = await import("../src/lib/zip");
+    const base = { projectId: "p1", projectTitle: "项目", nodeId: "node", title: "同名/素材", prompt: "提示", model: "model", createdAt: "2026-11-01T12:00:00", content: "" };
+    const image: GenerationResource = { ...base, id: "i", kind: "image", storageKey: "image:a", mimeType: "image/jpeg" };
+    const audio: GenerationResource = { ...base, id: "m", kind: "audio", storageKey: "audio:one", mimeType: "audio/mpeg" };
+    downloads.length = 0;
+    await downloadGenerationResources([image, audio]);
+    expect(downloads).toHaveLength(1);
+    expect(downloads[0].name).toBe("生成历史.zip");
+    const files = await readZip(downloads[0].blob);
+    expect([...files.keys()]).toEqual(["001-同名_素材.jpg", "002-同名_素材.mp3"]);
+    const payload = await generationResourcePayload(audio, { x: 720, y: 720 });
+    expect(payload.kind).toBe("audio");
+    expect(payload.offset).toEqual({ x: 720, y: 720 });
+    expect("storageKey" in payload && payload.storageKey).toBe("audio:one");
+    expect("url" in payload && payload.url.startsWith("blob:")).toBe(true);
+    expect(await generationResourcePayload({ ...base, id: "t", kind: "text", content: "生成文字" })).toEqual({ kind: "text", title: "同名/素材", content: "生成文字", offset: undefined });
+});
+
+test("deleting history persists tombstones without deleting media and backfill cannot resurrect it", async () => {
+    const saved = useGenerationResourceStore.getState().resources.find((entry) => entry.storageKey === "image:a")!;
+    expect(saved).toBeDefined();
+    await removeGenerationResources([saved.id, saved.id]);
+    expect(useGenerationResourceStore.getState().resources.some((entry) => entry.id === saved.id)).toBe(false);
+    expect(stores.get("generation_resource_deletions")!.has(saved.id)).toBe(true);
+    expect(stores.get("generation_resources")!.has(saved.id)).toBe(false);
+    expect(stores.get("image_files")!.has("image:a")).toBe(true);
+    await saveGenerationResource(saved);
+    expect(useGenerationResourceStore.getState().resources.some((entry) => entry.id === saved.id)).toBe(false);
+    expect(useGenerationResourceStore.getState().resources.some((entry) => entry.storageKey === "image:b")).toBe(true);
 });

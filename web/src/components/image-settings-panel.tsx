@@ -7,7 +7,8 @@ import { geminiImageCapabilities, normalizeGeminiImageSettings } from "@/lib/gem
 import { type CanvasTheme } from "@/lib/canvas-theme";
 import { getImageQualityOptions, isImageQualitySupported } from "@/lib/image-quality";
 import { computeMediaSize, inferMediaRatio, inferMediaScale, mediaRatioOptions, mediaScaleOptions, readMediaDimensions } from "@/lib/media-size";
-import type { AiConfig } from "@/stores/use-config-store";
+import { resolveModelScript, type AiConfig } from "@/stores/use-config-store";
+import { isGptImage26Model, type GptImageSettings } from "@/lib/gpt-image";
 
 const DIMENSION_STEP = 16;
 
@@ -19,7 +20,7 @@ export const imageScaleOptions = mediaScaleOptions.map((value) => ({ value, labe
 
 type ImageSettingsPanelProps = {
     config: AiConfig;
-    onConfigChange: (key: "quality" | "size" | "count" | "background" | "geminiImageSize" | "geminiAspectRatio" | "geminiThinkingLevel", value: string) => void;
+    onConfigChange: (key: "quality" | "size" | "count" | "background" | "geminiImageSize" | "geminiAspectRatio" | "geminiThinkingLevel" | "gptImage", value: string | GptImageSettings) => void;
     theme: CanvasTheme;
     showTitle?: boolean;
     className?: string;
@@ -32,6 +33,8 @@ export function ImageSettingsPanel({ config, onConfigChange, theme, showTitle = 
     const [snapDimensionToStep, setSnapDimensionToStep] = useState(true);
     const model = config.model || config.imageModel;
     const gemini = geminiImageCapabilities(model);
+    const gpt26 = isGptImage26Model(model);
+    const format = config.gptImage?.format || "png";
     const qualityOptions = getImageQualityOptions(model);
     const quality = isImageQualitySupported(model, config.quality) ? config.quality : "auto";
     const count = Math.max(1, Math.min(maxCount, Math.floor(Math.abs(Number(config.count)) || 1)));
@@ -62,6 +65,7 @@ export function ImageSettingsPanel({ config, onConfigChange, theme, showTitle = 
                 }}
             >
                 {showTitle ? <div className="text-lg font-semibold">{t("settingsPanels.image.title")}</div> : null}
+                {gpt26 ? <GptImageOptions config={config} theme={theme} onConfigChange={onConfigChange} /> : null}
                 {gemini ? <GeminiImageOptions config={config} theme={theme} onConfigChange={onConfigChange} /> : <>
                 <div className="space-y-2.5">
                     <SettingTitle color={theme.node.muted}>{t("settingsPanels.image.quality")}</SettingTitle>
@@ -127,7 +131,7 @@ export function ImageSettingsPanel({ config, onConfigChange, theme, showTitle = 
                         </div>
                     </div>
                     <span onMouseDown={(event) => event.stopPropagation()}>
-                        <Switch size="small" checked={transparentBackground} onChange={(checked) => onConfigChange("background", checked ? "transparent" : "")} />
+                        <Switch size="small" disabled={gpt26 && !["png", "webp"].includes(format)} checked={transparentBackground && (!gpt26 || ["png", "webp"].includes(format))} onChange={(checked) => onConfigChange("background", checked ? "transparent" : "")} />
                     </span>
                 </div>
                 </>}
@@ -145,6 +149,37 @@ export function ImageSettingsPanel({ config, onConfigChange, theme, showTitle = 
             </div>
         </ImageSettingsTheme>
     );
+}
+
+function GptImageOptions({ config, theme, onConfigChange }: Pick<ImageSettingsPanelProps, "config" | "theme" | "onConfigChange">) {
+    const settings = config.gptImage || {};
+    const format = settings.format || "png";
+    const update = (patch: Partial<GptImageSettings>) => onConfigChange("gptImage", { ...settings, ...patch });
+    const inputClass = "w-full min-w-0 rounded-lg border border-current/20 bg-transparent p-2 text-sm";
+    return <div className="space-y-3">
+        <div className="text-xs" style={{ color: theme.node.muted }}>GPT Image 2.6 · 输出格式与复杂度独立于画质。GIF／SVG需账号或中转站支持，失败不会自动换模型或重新生成。</div>
+        {resolveModelScript(config, config.model) ? <div className="text-xs" style={{ color: theme.node.muted }}>当前模型启用了自定义脚本。新参数需脚本读取并转发params；旧脚本不会自动更新。使用官方默认接口可清空调用脚本，内置请求会处理这些参数。</div> : null}
+        <div className="grid grid-cols-3 gap-2">{(["png", "jpeg", "webp", "gif", "svg"] as const).map((value) => <OptionPill key={value} selected={format === value} theme={theme} onClick={() => {
+            update({ format: value });
+            if (!["png", "webp"].includes(value)) onConfigChange("background", "");
+        }}>{value === "gif" ? "GIF 动画" : value === "svg" ? "SVG 矢量" : value.toUpperCase()}</OptionPill>)}</div>
+        <SettingTitle color={theme.node.muted}>构图复杂度（思考量）</SettingTitle>
+        <div className="grid grid-cols-4 gap-2">{([ ["auto", "默认"], ["low", "低"], ["medium", "中"], ["high", "高"] ] as const).map(([value, label]) => <OptionPill key={value} selected={(settings.complexity || "auto") === value} theme={theme} onClick={() => update({ complexity: value })}>{label}</OptionPill>)}</div>
+        <div className="text-xs" style={{ color: theme.node.muted }}>默认不传complexity，采用模型默认值（官方当前为高）；更高复杂度可能增加等待时间。</div>
+        {format === "gif" ? <div className="space-y-2 text-xs">
+            <label className="block">动画帧数（2～16，默认9）<input type="number" min={2} max={16} step={1} className={inputClass} value={settings.frameCount ?? "9"} onChange={(event) => update({ frameCount: event.target.value })} /></label>
+            <label className="block">每帧间隔毫秒（默认200；建议20～2000）<input type="number" min={20} step={10} className={inputClass} value={settings.frameDurationMs ?? "200"} onChange={(event) => update({ frameDurationMs: event.target.value })} /></label>
+            <div style={{ color: theme.node.muted }}>API按10ms取整。尺寸指每帧尺寸，总像素预算由API校验；建议先用自动尺寸。GIF不支持压缩参数或流式预览，原动画文件会完整保存。</div>
+        </div> : null}
+        {["jpeg", "webp"].includes(format) ? <label className="block text-xs">压缩质量（0～100；留空使用官方默认）<input type="number" min={0} max={100} step={1} className={inputClass} value={settings.compression || ""} onChange={(event) => update({ compression: event.target.value })} /></label> : null}
+        {format === "svg" ? <div className="space-y-2 text-xs">
+            <div style={{ color: theme.node.muted }}>仅文生图、单次API只生成1张；画布批量仍逐次提交。不支持参考图／局部编辑。保存为真实矢量文件。下面的作者模型选项仅限账号已开通对应权限时填写。</div>
+            <input className={inputClass} placeholder="SVG作者模型ID（默认留空）" value={settings.svgModel || ""} onChange={(event) => update({ svgModel: event.target.value })} />
+            {settings.svgModel?.trim() ? <select className={inputClass} value={settings.svgReasoning || "auto"} onChange={(event) => update({ svgReasoning: event.target.value })}>{["auto", "none", "minimal", "low", "medium", "high", "xhigh", "max"].map((effort) => <option key={effort} value={effort}>{({ auto: "作者默认", none: "不思考", minimal: "极低", low: "低", medium: "中", high: "高", xhigh: "极高", max: "最高" } as Record<string, string>)[effort]}</option>)}</select> : null}
+            <div style={{ color: theme.node.muted }}>SVG作者有独立Token费用；具体支持的推理档位由作者模型决定。</div>
+        </div> : null}
+        <label className="flex items-center justify-between text-xs">内容过滤（仍遵守官方政策）<select className="rounded border border-current/20 bg-transparent p-1" value={settings.moderation || "auto"} onChange={(event) => update({ moderation: event.target.value as "auto" | "low" })}><option value="auto">标准</option><option value="low">较宽松</option></select></label>
+    </div>;
 }
 
 function GeminiImageOptions({ config, theme, onConfigChange }: Pick<ImageSettingsPanelProps, "config" | "theme" | "onConfigChange">) {

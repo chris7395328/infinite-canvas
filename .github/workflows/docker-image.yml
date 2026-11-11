@@ -39,6 +39,9 @@ jobs:
           bun test tests/generation-resources.test.ts
           bun test tests/tencent-vod.test.ts
           bun test tests/seedance25-assets.test.ts
+          bun test tests/seedance-series.test.ts
+          bun test tests/canvas-editing.test.ts
+          bun test tests/gpt-image26.test.ts
           cd ../canvas-proxy && bun install --frozen-lockfile
           node --test tencent-vod.test.js ../scripts/local/server.test.mjs
           node --test task-storage.test.js
@@ -81,6 +84,7 @@ jobs:
           tags: |
             type=raw,value=latest,enable={{is_default_branch}}
             type=ref,event=branch
+            type=raw,value=feature-volcengine-seedance,enable=${{ github.ref == 'refs/heads/feature/volcengine-seedance' }}
             type=ref,event=tag
             type=sha,prefix=
 

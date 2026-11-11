@@ -10,10 +10,11 @@ import { normalizeImageQualityForModel } from "@/lib/image-quality";
 import { geminiImageCapabilities, normalizeGeminiImageSettings } from "@/lib/gemini-image";
 import { useThemeStore } from "@/stores/use-theme-store";
 import type { AiConfig } from "@/stores/use-config-store";
+import { isGptImage26Model, type GptImageSettings } from "@/lib/gpt-image";
 
 type CanvasImageSettingsPopoverProps = {
     config: AiConfig;
-    onConfigChange: (key: keyof AiConfig, value: string) => void;
+    onConfigChange: (key: keyof AiConfig, value: string | GptImageSettings) => void;
     onMissingConfig?: () => void;
     onOpenChange?: (open: boolean) => void;
     buttonClassName?: string;
@@ -69,7 +70,7 @@ export function CanvasImageSettingsPopover({ config, onConfigChange, onOpenChang
             <span ref={buttonRef} className="inline-flex min-w-0">
                 <Button size="small" type="text" className={buttonClassName || "!h-8 !max-w-[180px] !justify-start !rounded-full !px-2.5"} style={{ background: theme.node.fill, color: theme.node.text }} icon={<Settings2 className="size-3.5" />} onClick={() => updateOpen(!open)}>
                     <span className="truncate">
-                        {gemini ? `${geminiSettings.geminiImageSize} · ${geminiSettings.geminiAspectRatio === "auto" ? t("settingsPanels.common.auto") : geminiSettings.geminiAspectRatio}` : `${imageQualityLabel(quality)} · ${imageSizeLabel(activeSize)}`} · {t("canvas.controls.images", { count })}
+                        {gemini ? `${geminiSettings.geminiImageSize} · ${geminiSettings.geminiAspectRatio === "auto" ? t("settingsPanels.common.auto") : geminiSettings.geminiAspectRatio}` : `${imageQualityLabel(quality)} · ${imageSizeLabel(activeSize)}`}{isGptImage26Model(config.model) ? ` · ${(config.gptImage?.format || "png").toUpperCase()}` : ""} · {t("canvas.controls.images", { count })}
                     </span>
                 </Button>
             </span>
@@ -91,7 +92,7 @@ function ImageSettingsPortal({
     placement: CanvasImageSettingsPopoverProps["placement"];
     theme: (typeof canvasThemes)[keyof typeof canvasThemes];
     config: AiConfig;
-    onConfigChange: (key: keyof AiConfig, value: string) => void;
+    onConfigChange: (key: keyof AiConfig, value: string | GptImageSettings) => void;
 }) {
     const width = 356;
     const gap = 8;

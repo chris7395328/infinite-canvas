@@ -532,6 +532,8 @@ function GenerationSettings({ config, model, updateConfig, openConfigDialog }: {
                         else if (key === "seedanceCameraFixed") updateSeedance({ cameraFixed: value === "true" });
                         else if (key === "seedanceReturnLastFrame") updateSeedance({ returnLastFrame: value === "true" });
                         else if (key === "seedanceOutputFormat") updateSeedance({ outputFormat: value === "mov" ? "mov" : "mp4" });
+                        else if (key === "seedanceSearchEnabled") updateSeedance({ searchEnabled: value === "true" });
+                        else if (key === "seedanceVideoDuration") updateSeedance({ videoDuration: value });
                         else updateConfig(key, value);
                     }}
                     theme={theme}

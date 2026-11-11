@@ -1,5 +1,6 @@
 import { defaultConfig, resolveChannelSeedanceConfig, resolveModelChannel, resolveModelForCapability, resolveModelScript, type AiConfig } from "@/stores/use-config-store";
-import { isSeedance25AssetsScript } from "@/lib/script-video-profile";
+import { isSeedance25AssetsScript, seedanceSeriesCapabilities } from "@/lib/script-video-profile";
+import { imageFileExtension } from "@/lib/gpt-image";
 import i18n from "@/i18n";
 import { ensureImagePreview, resolveImageUrl, uploadImage } from "@/services/image-storage";
 import { resolveMediaUrl } from "@/services/file-storage";
@@ -10,8 +11,8 @@ import type { CanvasImageAngleParams } from "@/components/canvas/canvas-node-ang
 import type { ReferenceImage } from "@/types/image";
 import { CanvasNodeType, type CanvasAssistantSession, type CanvasConnection, type CanvasNodeData, type CanvasNodeMetadata } from "@/types/canvas";
 
-export function imageExtension(dataUrl: string) {
-    return dataUrl.match(/^data:image[/]([^;]+)/)?.[1] || dataUrl.match(/image[/]([^;]+)/)?.[1] || "png";
+export function imageExtension(dataUrl: string, mimeType?: string) {
+    return imageFileExtension(mimeType || dataUrl.match(/^data:([^;]+)/)?.[1]);
 }
 
 export function audioExtension(mimeType?: string) {
@@ -110,9 +111,11 @@ export function buildGenerationConfig(config: AiConfig, node: CanvasNodeData | u
     const model = resolveModelForCapability(config, node?.metadata?.model, mode);
     const channel = resolveModelChannel(config, model);
     const seedance = resolveChannelSeedanceConfig(config, channel);
-    const draft = channel.apiFormat === "tencent-vod" ? false : node?.metadata?.seedanceDraft ?? seedance.draft;
+    const series = seedanceSeriesCapabilities(resolveModelScript(config, model), model);
+    const draft = channel.apiFormat === "tencent-vod" || series && (!series.v25 || (node?.metadata?.seedanceTaskType || seedance.taskType) === "edit") ? false : node?.metadata?.seedanceDraft ?? seedance.draft;
     const taskType = node?.metadata?.seedanceTaskType || seedance.taskType;
-    const vodAdaptive = (channel.apiFormat === "tencent-vod" || isSeedance25AssetsScript(resolveModelScript(config, model))) && ["edit", "extend"].includes(taskType);
+    const seriesEdit = series?.v25 && taskType === "edit";
+    const vodAdaptive = seriesEdit || (channel.apiFormat === "tencent-vod" || isSeedance25AssetsScript(resolveModelScript(config, model))) && ["edit", "extend"].includes(taskType);
     return {
         ...config,
         model,
@@ -120,11 +123,12 @@ export function buildGenerationConfig(config: AiConfig, node: CanvasNodeData | u
         reasoningEffort: node?.metadata?.reasoningEffort || config.reasoningEffort || defaultConfig.reasoningEffort,
         quality: node?.metadata?.quality || config.quality || defaultConfig.quality,
         geminiImageSize: node?.metadata?.geminiImageSize ?? config.geminiImageSize,
+        gptImage: node?.metadata?.gptImage ?? config.gptImage,
         geminiAspectRatio: node?.metadata?.geminiAspectRatio ?? config.geminiAspectRatio,
         geminiThinkingLevel: node?.metadata?.geminiThinkingLevel ?? config.geminiThinkingLevel,
         size: vodAdaptive ? "auto" : node?.metadata?.size || config.size || defaultConfig.size,
         background: node?.metadata?.background ?? config.background ?? defaultConfig.background,
-        videoSeconds: vodAdaptive && taskType === "edit" ? "-1" : node?.metadata?.seconds || config.videoSeconds || defaultConfig.videoSeconds,
+        videoSeconds: seriesEdit ? "0" : vodAdaptive && taskType === "edit" ? "-1" : node?.metadata?.seconds || config.videoSeconds || defaultConfig.videoSeconds,
         vquality: node?.metadata?.vquality || config.vquality || defaultConfig.vquality,
         videoGenerateAudio: node?.metadata?.generateAudio || config.videoGenerateAudio || defaultConfig.videoGenerateAudio,
         videoWatermark: node?.metadata?.watermark || config.videoWatermark || defaultConfig.videoWatermark,
@@ -137,6 +141,8 @@ export function buildGenerationConfig(config: AiConfig, node: CanvasNodeData | u
             cameraFixed: node?.metadata?.seedanceCameraFixed ?? seedance.cameraFixed,
             returnLastFrame: node?.metadata?.seedanceReturnLastFrame ?? seedance.returnLastFrame,
             outputFormat: node?.metadata?.seedanceOutputFormat ?? seedance.outputFormat,
+            searchEnabled: node?.metadata?.seedanceSearchEnabled ?? seedance.searchEnabled,
+            videoDuration: node?.metadata?.seedanceVideoDuration ?? seedance.videoDuration,
             draftTaskId: draft ? node?.metadata?.seedanceDraftTaskId : undefined,
             formalResolution: node?.metadata?.seedanceFormalResolution,
         },

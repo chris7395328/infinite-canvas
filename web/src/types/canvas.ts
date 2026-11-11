@@ -63,6 +63,7 @@ export type CanvasNodeMetadata = {
     size?: string;
     quality?: string;
     geminiImageSize?: string;
+    gptImage?: import("@/lib/gpt-image").GptImageSettings;
     geminiAspectRatio?: string;
     geminiThinkingLevel?: string;
     background?: string;
@@ -81,6 +82,8 @@ export type CanvasNodeMetadata = {
     seedanceCameraFixed?: boolean;
     seedanceReturnLastFrame?: boolean;
     seedanceOutputFormat?: "mp4" | "mov";
+    seedanceSearchEnabled?: boolean;
+    seedanceVideoDuration?: string;
     seedanceDraftTaskId?: string;
     seedanceFormalResolution?: string;
     audioVoice?: string;

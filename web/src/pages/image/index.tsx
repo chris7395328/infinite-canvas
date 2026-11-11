@@ -11,6 +11,7 @@ import { PromptSelectDialog } from "@/components/prompts/prompt-select-dialog";
 import { AssetPickerModal, type InsertAssetPayload } from "@/components/canvas/asset-picker-modal";
 import { canvasThemes } from "@/lib/canvas-theme";
 import { imageReferenceLabel } from "@/lib/image-reference-prompt";
+import { imageFileExtension } from "@/lib/gpt-image";
 import { geminiImageCapabilities, normalizeGeminiImageSettings } from "@/lib/gemini-image";
 import { modelOptionLabel, useConfigStore, useEffectiveConfig, type AiConfig } from "@/stores/use-config-store";
 import { useThemeStore } from "@/stores/use-theme-store";
@@ -60,7 +61,7 @@ type GenerationLog = {
     images: GeneratedImage[];
 };
 
-type GenerationLogConfig = Pick<AiConfig, "model" | "imageModel" | "quality" | "size" | "count" | "geminiImageSize" | "geminiAspectRatio" | "geminiThinkingLevel">;
+type GenerationLogConfig = Pick<AiConfig, "model" | "imageModel" | "quality" | "size" | "count" | "geminiImageSize" | "geminiAspectRatio" | "geminiThinkingLevel" | "gptImage">;
 
 type UpdateAiConfig = <K extends keyof AiConfig>(key: K, value: AiConfig[K]) => void;
 
@@ -231,7 +232,7 @@ export default function ImagePage() {
     }, [autoRunToken]);
 
     const downloadImage = (image: GeneratedImage, index: number) => {
-        saveAs(image.dataUrl, `image-${index + 1}.png`);
+        saveAs(image.dataUrl, `image-${index + 1}.${imageFileExtension(image.mimeType)}`);
     };
 
     const addResultToReferences = async (image: GeneratedImage, index: number) => {
@@ -303,6 +304,7 @@ export default function ImagePage() {
         if (log.config.size) updateConfig("size", log.config.size);
         if (log.config.count) updateConfig("count", log.config.count);
         updateConfig("geminiImageSize", log.config.geminiImageSize);
+        updateConfig("gptImage", log.config.gptImage);
         updateConfig("geminiAspectRatio", log.config.geminiAspectRatio);
         updateConfig("geminiThinkingLevel", log.config.geminiThinkingLevel);
         setResults(log.images.map((image) => ({ id: image.id, status: "success", image })));
@@ -592,7 +594,7 @@ function ResultImageCard({
     useSyncExternalStore(subscribeImagePreviews, getImagePreviewRevision);
     return (
         <div className="overflow-hidden rounded-lg border border-stone-200 bg-background dark:border-stone-800">
-            <Image src={previewUrlFor(image.storageKey) || image.dataUrl} preview={{ src: image.dataUrl }} alt={t("imageWorkbench.resultAlt", { count: index + 1 })} className="aspect-square object-cover" />
+            <Image src={(image.mimeType !== "image/gif" && previewUrlFor(image.storageKey)) || image.dataUrl} preview={{ src: image.dataUrl }} alt={t("imageWorkbench.resultAlt", { count: index + 1 })} className="aspect-square object-cover" />
             <div className="space-y-2 border-t border-stone-200 px-3 py-2.5 dark:border-stone-800">
                 <div className="flex min-w-0 gap-x-2 gap-y-1 text-xs text-stone-500 dark:text-stone-400">
                     <span>
@@ -835,6 +837,7 @@ function normalizeLogConfig(log: Partial<GenerationLog>): GenerationLogConfig {
         imageModel: log.config?.imageModel || log.model || "",
         quality: log.config?.quality || log.quality || "",
         geminiImageSize: log.config?.geminiImageSize,
+        gptImage: log.config?.gptImage,
         geminiAspectRatio: log.config?.geminiAspectRatio,
         geminiThinkingLevel: log.config?.geminiThinkingLevel,
         size: log.config?.size || log.size || "",
@@ -886,6 +889,7 @@ function buildLog({
         imageModel: config.imageModel,
         quality: config.quality,
         geminiImageSize: config.geminiImageSize,
+        gptImage: config.gptImage,
         geminiAspectRatio: config.geminiAspectRatio,
         geminiThinkingLevel: config.geminiThinkingLevel,
         ...(geminiImageCapabilities(config.model) ? normalizeGeminiImageSettings(config.model, config) : {}),

@@ -1,7 +1,7 @@
 import type { CSSProperties, MouseEvent as ReactMouseEvent, ReactNode, RefObject } from "react";
 import { useEffect, useRef, useState } from "react";
 import { Button, Segmented, Switch } from "antd";
-import { CircleDot, Eraser, Grid2x2, Group, Hand, Image as ImageIcon, Info, LocateFixed, Moon, MousePointer2, Music2, Palette, Puzzle, Redo2, Settings2, Square, Sun, Trash2, Type, Undo2, Upload, Video } from "lucide-react";
+import { CircleDot, Eraser, Grid2x2, Group, Hand, History, Image as ImageIcon, Info, LocateFixed, Moon, MousePointer2, Music2, Palette, Puzzle, Redo2, Settings2, Square, Sun, Trash2, Type, Undo2, Upload, Video } from "lucide-react";
 
 import { canvasThemes, type CanvasBackgroundMode, type CanvasColorTheme, type CanvasTheme } from "@/lib/canvas-theme";
 import { getNodePluginId, listNodeDefinitions, useNodeRegistryVersion } from "@/lib/canvas/node-registry";
@@ -27,6 +27,7 @@ export function CanvasToolbar({
     onUndo,
     onRedo,
     onUpload,
+    onHistory,
     onDelete,
     onClear,
     onCanvasToolChange,
@@ -50,6 +51,7 @@ export function CanvasToolbar({
     onUndo: () => void;
     onRedo: () => void;
     onUpload: () => void;
+    onHistory: () => void;
     onDelete: () => void;
     onClear: () => void;
     onCanvasToolChange: (tool: "select" | "pan") => void;
@@ -147,6 +149,9 @@ export function CanvasToolbar({
                 ) : null}
                 <ToolbarButton id="tool-upload" label={t("canvas.toolbar.upload")} hovered={hovered} hoverStyle={hoverStyle} wrapRef={wrapRef} onTipX={setTipX} onHover={setHovered} onClick={onUpload}>
                     <Upload className="size-4.5" />
+                </ToolbarButton>
+                <ToolbarButton id="tool-history" label="生成历史" hovered={hovered} hoverStyle={hoverStyle} wrapRef={wrapRef} onTipX={setTipX} onHover={setHovered} onClick={onHistory}>
+                    <History className="size-4.5" />
                 </ToolbarButton>
                 <Divider theme={theme} />
                 <ToolbarButton
@@ -371,6 +376,7 @@ function toolLabel(id: string, t: (key: string) => string) {
     if (id === "tool-group") return t("canvas.toolbar.group");
     if (id === "tool-extensions") return t("canvas.toolbar.extensions");
     if (id === "tool-upload") return t("canvas.toolbar.upload");
+    if (id === "tool-history") return "生成历史";
     if (id === "tool-style") return t("canvas.toolbar.appearance");
     if (id === "tool-delete") return t("canvas.deleteSelected");
     if (id === "tool-clear") return t("canvas.toolbar.clear");

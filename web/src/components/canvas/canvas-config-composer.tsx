@@ -6,6 +6,8 @@ import { useTranslation } from "react-i18next";
 
 import i18n from "@/i18n";
 import { canvasThemes } from "@/lib/canvas-theme";
+import { canvasEditorText } from "@/lib/canvas/canvas-editor-text";
+import { isImeComposing } from "@/lib/keyboard-event";
 import { useThemeStore } from "@/stores/use-theme-store";
 import type { NodeGenerationInput } from "./canvas-node-generation";
 import { CanvasNodeReferenceBar } from "./canvas-node-reference-bar";
@@ -151,6 +153,7 @@ export function CanvasConfigComposer({ nodeId, nodes, value, inputs, connectedNo
                     }}
                     onKeyDown={(event: KeyboardEvent<HTMLDivElement>) => {
                         event.stopPropagation();
+                        if (composingRef.current || isImeComposing(event)) return;
                         if (mention && candidates.length) {
                             if (event.key === "ArrowDown") {
                                 event.preventDefault();
@@ -271,20 +274,10 @@ function createReferenceChip(input: NodeGenerationInput, inputs: NodeGenerationI
 }
 
 function serializeEditor(editor: HTMLElement) {
-    return serializeNodes(editor.childNodes).replace(/\uFEFF/g, "");
-}
-
-function serializeNodes(nodes: NodeListOf<ChildNode>) {
-    let result = "";
-    nodes.forEach((node) => {
-        if (node.nodeType === Node.TEXT_NODE) result += node.textContent || "";
-        if (!(node instanceof HTMLElement)) return;
-        const nodeId = node.dataset.referenceNodeId;
-        if (nodeId) result += `@[node:${nodeId}]`;
-        else if (node.tagName === "BR") result += "\n";
-        else result += serializeNodes(node.childNodes);
+    return canvasEditorText(editor.childNodes, (element) => {
+        const nodeId = element.dataset.referenceNodeId;
+        return nodeId ? `@[node:${nodeId}]` : undefined;
     });
-    return result;
 }
 
 function removeActiveMention() {

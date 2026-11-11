@@ -90,7 +90,7 @@ export function createMemoryTasks({ generateVod } = {}) {
             const protocol = req.headers["x-canvas-video-protocol"];
             const vod = req.headers["x-canvas-target-url"] === "/tencent-vod/video";
             if (vod && !generateVod) { req.resume(); json(res, 400, { error: "代理不支持腾讯VOD，请更新proxy；尚未提交生成。" }); return; }
-            if (protocol && !["openai", "gemini", "omni", "moyu", "json-video", "xing933"].includes(protocol)) { req.resume(); json(res, 400, { error: "未知视频任务协议，未提交生成。" }); return; }
+            if (protocol && !["openai", "gemini", "omni", "moyu", "json-video", "xing933", "seedance-series"].includes(protocol)) { req.resume(); json(res, 400, { error: "未知视频任务协议，未提交生成。" }); return; }
             task = { id, key: digest(token), state: "uploading", createdAt: Date.now(), bytes: 0, chunks: [], controller: new AbortController() };
             tasks.set(id, task);
             reserve(task, OVERHEAD);

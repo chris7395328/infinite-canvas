@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useRef, useState, type PointerEvent as ReactPointerEvent } from "react";
 import { createPortal } from "react-dom";
-import { Button, Input, Modal, Slider, Tooltip } from "antd";
+import { Button, Input, Modal, Slider, Switch, Tooltip } from "antd";
 import { Brush, Eraser, ImagePlus, Redo2, RotateCcw, Undo2, WandSparkles, ZoomIn, ZoomOut } from "lucide-react";
 import { useTranslation } from "react-i18next";
 
@@ -11,6 +11,7 @@ export type CanvasImageMaskEditPayload = {
     prompt: string;
     maskDataUrl: string;
     generate: boolean;
+    markupDataUrl?: string;
 };
 
 type DrawMode = "paint" | "erase";
@@ -22,7 +23,7 @@ const defaultBrushSize = 100;
 const maskOverlayColor = "#2563eb";
 const maskOverlayAlpha = 0.4;
 
-export function CanvasNodeMaskEditDialog({ dataUrl, open, onClose, onConfirm }: { dataUrl: string; open: boolean; onClose: () => void; onConfirm: (payload: CanvasImageMaskEditPayload) => void }) {
+export function CanvasNodeMaskEditDialog({ dataUrl, open, onClose, onConfirm, allowMarkup = false }: { dataUrl: string; open: boolean; onClose: () => void; onConfirm: (payload: CanvasImageMaskEditPayload) => void; allowMarkup?: boolean }) {
     const { t } = useTranslation();
     const maskCanvasRef = useRef<HTMLCanvasElement>(null);
     const previewCanvasRef = useRef<HTMLCanvasElement>(null);
@@ -35,6 +36,7 @@ export function CanvasNodeMaskEditDialog({ dataUrl, open, onClose, onConfirm }: 
     const [prompt, setPrompt] = useState("");
     const [brushSize, setBrushSize] = useState(defaultBrushSize);
     const [mode, setMode] = useState<DrawMode>("paint");
+    const [useMarkup, setUseMarkup] = useState(true);
     const [error, setError] = useState("");
     const [historySize, setHistorySize] = useState(0);
     const [redoSize, setRedoSize] = useState(0);
@@ -210,7 +212,7 @@ export function CanvasNodeMaskEditDialog({ dataUrl, open, onClose, onConfirm }: 
         if (!nextPrompt) return setError(t("canvas.editors.maskPromptRequired"));
         if (!canvas || !element) return;
         if (!canvasHasPaint(canvas)) return setError(t("canvas.editors.maskRequired"));
-        onConfirm({ prompt: nextPrompt, maskDataUrl: buildMaskOverlay(element, canvas), generate });
+        onConfirm({ prompt: nextPrompt, maskDataUrl: buildMaskOverlay(element, canvas), generate, ...(allowMarkup && useMarkup ? { markupDataUrl: buildMarkupOverlay(canvas) } : {}) });
     };
 
     return (
@@ -267,6 +269,7 @@ export function CanvasNodeMaskEditDialog({ dataUrl, open, onClose, onConfirm }: 
                         <h2 className="text-xl font-semibold">{t("canvas.editors.maskTitle")}</h2>
                         <div className="mt-2 text-sm opacity-60">{image ? `${image.width} x ${image.height}px` : t("canvas.editors.loading")}</div>
                         <div className="mt-2 text-xs leading-5 opacity-55">{t("canvas.editors.maskHint")}</div>
+                        {allowMarkup ? <label className="mt-3 flex items-center justify-between gap-2 text-xs">官方标注引导（独立透明PNG）<Switch size="small" checked={useMarkup} onChange={setUseMarkup} /></label> : null}
                     </div>
 
                     <div className="grid grid-cols-2 gap-2">
@@ -434,5 +437,17 @@ function buildMaskOverlay(image: HTMLImageElement, selectionCanvas: HTMLCanvasEl
     overlayContext.fillRect(0, 0, overlay.width, overlay.height);
     context.globalAlpha = maskOverlayAlpha;
     context.drawImage(overlay, 0, 0);
+    return canvas.toDataURL("image/png");
+}
+
+function buildMarkupOverlay(selection: HTMLCanvasElement) {
+    const canvas = document.createElement("canvas");
+    canvas.width = selection.width; canvas.height = selection.height;
+    const context = canvas.getContext("2d");
+    if (!context) return selection.toDataURL("image/png");
+    context.drawImage(selection, 0, 0);
+    context.globalCompositeOperation = "source-in";
+    context.fillStyle = maskOverlayColor;
+    context.fillRect(0, 0, canvas.width, canvas.height);
     return canvas.toDataURL("image/png");
 }

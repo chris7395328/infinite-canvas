@@ -5,11 +5,13 @@ import { buildApiUrl, normalizeLocalProxyUrl, withLocalProxy, type AiConfig, typ
 import { backgroundFetch, backgroundPost, type BackgroundContext } from "./background-tasks";
 import tencentVodScript from "./tencent-vod-script.js?raw";
 import seedance25AssetsScript from "./seedance25-assets-script.js?raw";
+import seedanceSeriesScript from "./seedance-series-script.js?raw";
 import { createScriptCosUpload } from "./script-cos";
-import { isSeedance25AssetsScript } from "@/lib/script-video-profile";
+import { isSeedanceDraftScript, isSeedanceSeriesScript } from "@/lib/script-video-profile";
 
 export const getTencentVodScript = () => tencentVodScript.trim();
 export const getSeedance25AssetsScript = () => seedance25AssetsScript.trim();
+export const getSeedanceSeriesScript = () => seedanceSeriesScript.trim();
 
 type RequestOptions = { signal?: AbortSignal; nextBackground?: () => BackgroundContext | undefined };
 
@@ -133,6 +135,10 @@ export async function runModelPlugin<T = unknown>(args: RunPluginArgs): Promise<
     const request = createPluginRequest(config, { signal: args.signal, nextBackground });
     const pluginFetch: typeof fetch = async (input, init) => {
         const req = new Request(typeof input === "string" ? new URL(input, window.location.href) : input, init);
+        if (args.capability === "video" && isSeedanceSeriesScript(args.script) && req.method === "POST" && req.headers.get("x-canvas-video-protocol") === "seedance-series") {
+            const body = await req.clone().json();
+            if (body.mode === "videoEdit2video" && (typeof body.video_duration !== "number" || !Number.isFinite(body.video_duration) || body.video_duration <= 0)) throw new Error("当前模型已保存的调用脚本未向请求JSON写入有效video_duration；即使节点已填时长，旧脚本也可能漏传。请重新载入并保存新版Seedance系列模板；尚未发送生成请求。");
+        }
         if (req.method !== "POST" || !nextBackground) return fetch(input, init);
         const context = nextBackground();
         return backgroundFetch(withLocalProxy(req.url), { method: "POST", headers: req.headers, body: await req.arrayBuffer(), signal: args.signal }, context, `plugin-${context.plugin.capability}`);
@@ -260,7 +266,7 @@ export type PluginTemplate = { label: string; script: string };
 export function isReplayablePluginScript(capability: ModelCapability, script: string) {
     // This template performs asset preparation with global fetch. Replay would create
     // new assets before reaching the stored video receipt, so only parse its result.
-    return !isSeedance25AssetsScript(script) && (script === getVolcengineSeedanceScript() || getPluginTemplates()[capability].some((template) => template.script === script));
+    return !isSeedanceDraftScript(script) && (script === getVolcengineSeedanceScript() || getPluginTemplates()[capability].some((template) => template.script === script));
 }
 
 /** Built-in script used by the Volcengine Seedance provider preset. */
@@ -482,7 +488,8 @@ return await generateImage({
         },
     ],
     video: [
-        { label: "Seedance 2.5 平台素材库／草稿（JSON协议）", script: getSeedance25AssetsScript() },
+        { label: "Seedance系列平台：2.0／2.5编辑／样片报价（COS URL）", script: getSeedanceSeriesScript() },
+        { label: "Seedance 2.5 平台素材库／草稿（旧协议）", script: getSeedance25AssetsScript() },
         {
             label: i18n.t("modelPlugin.templates.openai"),
             script: `/**

@@ -160,6 +160,7 @@ function buildNodeConfig(globalConfig: AiConfig, node: CanvasNodeData, mode: Can
         seedanceChannelId: channel.id,
         reasoningEffort: node.metadata?.reasoningEffort || globalConfig.reasoningEffort || defaultConfig.reasoningEffort,
         quality: node.metadata?.quality || globalConfig.quality || defaultConfig.quality,
+        gptImage: node.metadata?.gptImage ?? globalConfig.gptImage,
         size: node.metadata?.size || globalConfig.size || defaultConfig.size,
         background: node.metadata?.background ?? globalConfig.background ?? defaultConfig.background,
         videoSeconds: node.metadata?.seconds || globalConfig.videoSeconds || defaultConfig.videoSeconds,
@@ -175,6 +176,8 @@ function buildNodeConfig(globalConfig: AiConfig, node: CanvasNodeData, mode: Can
             cameraFixed: node.metadata?.seedanceCameraFixed ?? seedance.cameraFixed,
             returnLastFrame: node.metadata?.seedanceReturnLastFrame ?? seedance.returnLastFrame,
             outputFormat: node.metadata?.seedanceOutputFormat ?? seedance.outputFormat,
+            searchEnabled: node.metadata?.seedanceSearchEnabled ?? seedance.searchEnabled,
+            videoDuration: node.metadata?.seedanceVideoDuration ?? seedance.videoDuration,
             draftTaskId: draft ? node.metadata?.seedanceDraftTaskId : undefined,
             formalResolution: node.metadata?.seedanceFormalResolution,
         },
@@ -198,6 +201,8 @@ function videoConfigPatch(key: VideoSettingsKey, value: string): Partial<CanvasN
     if (key === "seedanceCameraFixed") return { seedanceCameraFixed: value === "true" };
     if (key === "seedanceReturnLastFrame") return { seedanceReturnLastFrame: value === "true" };
     if (key === "seedanceOutputFormat") return { seedanceOutputFormat: value === "mov" ? "mov" : "mp4" };
+    if (key === "seedanceSearchEnabled") return { seedanceSearchEnabled: value === "true" };
+    if (key === "seedanceVideoDuration") return { seedanceVideoDuration: value };
     return { [key]: value };
 }
 

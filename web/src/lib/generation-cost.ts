@@ -1,4 +1,16 @@
 import type { GenerationCostRecord, ModelPrice, ResolutionPrice } from "@/types/generation-cost";
+import type { ModelChannel } from "@/stores/use-config-store";
+
+export function repriceCostRecord(record: GenerationCostRecord, channels: Pick<ModelChannel, "id" | "models">[], repricedAt: string): GenerationCostRecord | undefined {
+    const model = channels.find((channel) => channel.id === record.channelId)?.models.find((item) => item.name === record.modelName && item.capability === record.capability);
+    if (!model) return undefined;
+    return {
+        ...record,
+        price: resolveResolutionPrice(model, record.resolution, record.size),
+        originalPrice: record.originalPrice === undefined ? record.price || null : record.originalPrice,
+        repricedAt,
+    };
+}
 
 export function normalizePriceResolution(value: string, capability: string): string | undefined {
     const raw = String(value || "").trim().toLowerCase().replace(/\s/g, "").replace("×", "x");

@@ -65,6 +65,7 @@ export function buildImageGenerationMetadata(type: CanvasImageGenerationType, co
         model: config.model,
         size: config.size,
         quality: config.quality,
+        ...(config.gptImage ? { gptImage: { ...config.gptImage } } : {}),
         ...(geminiImageCapabilities(config.model) ? normalizeGeminiImageSettings(config.model, config) : {}),
         ...(config.background ? { background: config.background } : {}),
         count,
