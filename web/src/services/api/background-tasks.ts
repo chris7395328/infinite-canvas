@@ -1,5 +1,6 @@
 import axios, { type AxiosRequestConfig } from "axios";
 import localforage from "localforage";
+import { randomUUID } from "@/lib/browser-crypto";
 import { normalizeLocalProxyUrl, useConfigStore } from "@/stores/use-config-store";
 import type { CanvasConnection, CanvasNodeData } from "@/types/canvas";
 import { flushCanvasStore, useCanvasStore } from "@/stores/canvas/use-canvas-store";
@@ -97,7 +98,7 @@ export async function backgroundFetch(url: string, init: RequestInit, context: B
     await journal.keys();
     const snapshot = context.snapshot();
     if (!snapshot) throw new Error("生成节点尚未保存，未提交后台任务。");
-    const task: BackgroundTask = { id: crypto.randomUUID(), key: crypto.randomUUID(), base: absoluteBase, projectId: context.projectId, nodeId: context.nodeId, itemId: context.itemId, kind, format, snapshot, connections: context.connections?.(), plugin: context.plugin, billing: context.billing };
+    const task: BackgroundTask = { id: randomUUID(), key: randomUUID(), base: absoluteBase, projectId: context.projectId, nodeId: context.nodeId, itemId: context.itemId, kind, format, snapshot, connections: context.connections?.(), plugin: context.plugin, billing: context.billing };
     await recordGenerationSubmitted(task.billing);
     await journal.setItem(task.id, task);
     window.dispatchEvent(new CustomEvent("canvas-background-task", { detail: { projectId: context.projectId, nodeId: context.nodeId } }));

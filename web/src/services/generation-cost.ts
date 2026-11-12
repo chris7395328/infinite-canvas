@@ -1,4 +1,5 @@
 import { isVolcengineSeedance25, modelOptionName, resolveModelChannel, resolveModelRequestConfig, type AiConfig } from "@/stores/use-config-store";
+import { randomUUID } from "@/lib/browser-crypto";
 import { useGenerationCostStore } from "@/stores/use-generation-cost-store";
 import { normalizePriceResolution, resolveResolutionPrice } from "@/lib/generation-cost";
 import { geminiImageCapabilities, normalizeGeminiImageSettings } from "@/lib/gemini-image";
@@ -20,7 +21,7 @@ export function createGenerationCostSnapshot(config: AiConfig, projectId: string
         : capability === "image" ? normalizePriceResolution(geminiImage ? normalizeGeminiImageSettings(config.model, config).geminiImageSize : inferMediaScale(config.size), "image") : undefined;
     const size = capability === "image" && !geminiImage ? config.size : undefined;
     const parameters = Object.fromEntries(Object.entries({ 尺寸: size, 分辨率: resolution, 质量: capability === "image" && !geminiImage ? config.quality : undefined, 画幅: capability === "video" ? config.size : geminiImage ? config.geminiAspectRatio : undefined, 时长秒: capability === "video" ? config.videoSeconds : undefined, ...(capability === "image" && !geminiImage && config.gptImage ? { 输出格式: config.gptImage.format, 构图复杂度: config.gptImage.complexity, 动画帧数: config.gptImage.format === "gif" ? config.gptImage.frameCount : undefined, 每帧毫秒: config.gptImage.format === "gif" ? config.gptImage.frameDurationMs : undefined } : {}) }).filter(([, value]) => value !== undefined)) as Record<string, string>;
-    return { id: crypto.randomUUID(), projectId, nodeId, itemId, channelId: channel.id, channelName: channel.name, modelName: modelOptionName(config.model), capability, resolution, size, parameters, price: model ? resolveResolutionPrice(model, resolution, size) : undefined, seconds: seconds && seconds > 0 ? seconds : undefined };
+    return { id: randomUUID(), projectId, nodeId, itemId, channelId: channel.id, channelName: channel.name, modelName: modelOptionName(config.model), capability, resolution, size, parameters, price: model ? resolveResolutionPrice(model, resolution, size) : undefined, seconds: seconds && seconds > 0 ? seconds : undefined };
 }
 
 export async function recordReceivedGeneration(snapshot: GenerationCostSnapshot | undefined, result: ReceivedResource) {

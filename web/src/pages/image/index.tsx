@@ -23,6 +23,7 @@ import { useAssetStore } from "@/stores/use-asset-store";
 import { useWorkbenchAgentStore } from "@/stores/use-workbench-agent-store";
 import type { ReferenceImage } from "@/types/image";
 import i18n from "@/i18n";
+import { pastedImages, readClipboardImages } from "@/services/clipboard";
 
 type GeneratedImage = {
     id: string;
@@ -117,7 +118,7 @@ export default function ImagePage() {
         void refreshLogs();
     }, []);
 
-    const addReferences = async (files?: FileList | null) => {
+    const addReferences = async (files?: FileList | File[] | null) => {
         const imageFiles = Array.from(files || []).filter((file) => file.type.startsWith("image/"));
         const nextReferences = await Promise.all(
             imageFiles.map(async (file) => {
@@ -130,8 +131,7 @@ export default function ImagePage() {
 
     const addReferencesFromClipboard = async () => {
         try {
-            const items = await navigator.clipboard.read();
-            const blobs = await Promise.all(items.flatMap((item) => item.types.filter((type) => type.startsWith("image/")).map((type) => item.getType(type))));
+            const blobs = await readClipboardImages();
             if (!blobs.length) {
                 message.error(t("imageWorkbench.clipboardEmpty"));
                 return;
@@ -144,8 +144,8 @@ export default function ImagePage() {
             );
             setReferences((value) => [...value, ...nextReferences]);
             message.success(t("imageWorkbench.clipboardAdded", { count: nextReferences.length }));
-        } catch {
-            message.error(t("imageWorkbench.clipboardEmpty"));
+        } catch (error) {
+            message.error(error instanceof Error ? error.message : t("common.clipboardReadHint"));
         }
     };
 
@@ -368,7 +368,11 @@ export default function ImagePage() {
     };
 
     return (
-        <div className="flex h-full flex-col overflow-hidden bg-stone-50 text-stone-900 dark:bg-stone-950 dark:text-stone-100">
+        <div className="flex h-full flex-col overflow-hidden bg-stone-50 text-stone-900 dark:bg-stone-950 dark:text-stone-100" onPaste={(event) => {
+            if (event.defaultPrevented) return;
+            const files = pastedImages(event.clipboardData);
+            if (files.length) { event.preventDefault(); void addReferences(files); }
+        }}>
             <main className="grid min-h-0 flex-1 grid-cols-1 gap-3 overflow-y-auto p-3 lg:grid-cols-[300px_minmax(0,1fr)] lg:overflow-hidden xl:grid-cols-[320px_minmax(0,1fr)]">
                 <aside className="thin-scrollbar hidden min-h-0 overflow-y-auto rounded-lg border border-stone-200 bg-card p-4 shadow-sm dark:border-stone-800 lg:block">
                     <LogPanel

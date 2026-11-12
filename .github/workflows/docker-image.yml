@@ -42,6 +42,7 @@ jobs:
           bun test tests/seedance-series.test.ts
           bun test tests/canvas-editing.test.ts
           bun test tests/gpt-image26.test.ts
+          bun test tests/http-compat.test.ts
           cd ../canvas-proxy && bun install --frozen-lockfile
           node --test tencent-vod.test.js ../scripts/local/server.test.mjs
           node --test task-storage.test.js

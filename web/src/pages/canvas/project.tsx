@@ -6,6 +6,7 @@ import { saveAs } from "file-saver";
 import { useTranslation } from "react-i18next";
 
 import { requestEdit, requestGeneration, requestImageQuestion } from "@/services/api/image";
+import { pastedImages } from "@/services/clipboard";
 import { requestAudioGeneration, storeGeneratedAudio } from "@/services/api/audio";
 import { acknowledgeSavedBackgroundTasks, backgroundTasks, discardBackgroundTasks, supersedeNodeBackgroundTasks, type BackgroundContext } from "@/services/api/background-tasks";
 import { applyBackgroundResult, recoverBackgroundResult } from "@/services/background-task-recovery";
@@ -1783,24 +1784,21 @@ function InfiniteCanvasPage() {
         [getCanvasCenter, t],
     );
 
-    const pasteSystemClipboard = useCallback(async () => {
-        if (!navigator.clipboard) return;
-
-        const items = await navigator.clipboard.read();
-        const imageItem = items.find((item) => item.types.some((type) => type.startsWith("image/")));
-        if (imageItem) {
-            const imageType = imageItem.types.find((type) => type.startsWith("image/"));
-            if (!imageType) return;
-            const blob = await imageItem.getType(imageType);
-            const file = new File([blob], "clipboard-image.png", { type: imageType });
+    const pasteSystemClipboard = useCallback((event: ClipboardEvent) => {
+        const target = event.target instanceof Element ? event.target : null;
+        if (event.defaultPrevented || generationHistoryOpen || target?.closest("input,textarea,select,[contenteditable='true'],[data-canvas-no-zoom],[data-canvas-shortcuts-ignore]")) return;
+        const file = pastedImages(event.clipboardData)[0];
+        if (file) {
+            event.preventDefault();
             void createImageFileNode(file, getCanvasCenter());
             message.success(t("canvas.projectPage.clipboardImageAdded"));
             return;
         }
-
-        const text = await navigator.clipboard.readText();
-        if (createTextNodeFromClipboard(text)) message.success(t("canvas.projectPage.clipboardTextAdded"));
-    }, [createImageFileNode, createTextNodeFromClipboard, getCanvasCenter, message, t]);
+        if (createTextNodeFromClipboard(event.clipboardData?.getData("text/plain") || "")) {
+            event.preventDefault();
+            message.success(t("canvas.projectPage.clipboardTextAdded"));
+        }
+    }, [generationHistoryOpen, createImageFileNode, createTextNodeFromClipboard, getCanvasCenter, message, t]);
 
     useEffect(() => {
         const handleKeyDown = (event: KeyboardEvent) => {
@@ -1857,8 +1855,8 @@ function InfiniteCanvasPage() {
             }
 
             if (isModifierShortcut && !event.altKey && key === "v") {
-                event.preventDefault();
-                if (!pasteCopiedNodes()) void pasteSystemClipboard();
+                if (pasteCopiedNodes()) event.preventDefault();
+                // Otherwise allow the browser's user-initiated paste event, including on HTTP.
                 return;
             }
 
@@ -1888,7 +1886,8 @@ function InfiniteCanvasPage() {
         };
 
         window.addEventListener("keydown", handleKeyDown);
-        return () => window.removeEventListener("keydown", handleKeyDown);
+        window.addEventListener("paste", pasteSystemClipboard);
+        return () => { window.removeEventListener("keydown", handleKeyDown); window.removeEventListener("paste", pasteSystemClipboard); };
     }, [generationHistoryOpen, copySelectedNodes, deleteConnection, deleteNodes, groupSelection, pasteCopiedNodes, pasteSystemClipboard, redoCanvas, selectedConnectionId, setConnecting, undoCanvas, ungroupSelection]);
 
     const handleConnectStart = useCallback(

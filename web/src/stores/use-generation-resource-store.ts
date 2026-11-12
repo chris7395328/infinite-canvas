@@ -1,5 +1,6 @@
 import { create } from "zustand";
 import localforage from "localforage";
+import { sha256Hex } from "@/lib/browser-crypto";
 
 export type GenerationResourceKind = "image" | "video" | "audio" | "text";
 export type GenerationResource = {
@@ -51,8 +52,7 @@ export function loadGenerationResources() {
 export async function saveGenerationResource(resource: Omit<GenerationResource, "id">, itemId = "") {
     await loadGenerationResources();
     const identity = resource.storageKey || JSON.stringify([resource.projectId, resource.nodeId, itemId, resource.content]);
-    const hash = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(identity));
-    const id = Array.from(new Uint8Array(hash), (byte) => byte.toString(16).padStart(2, "0")).join("");
+    const id = await sha256Hex(identity);
     await mutate(async () => {
         if (deleted.has(id) || useGenerationResourceStore.getState().resources.some((entry) => entry.id === id)) return;
         const entry = { ...resource, id, content: resource.storageKey ? "" : resource.content };

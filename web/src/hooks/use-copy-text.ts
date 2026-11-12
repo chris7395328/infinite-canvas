@@ -7,7 +7,7 @@ export function useCopyText() {
     const { t } = useTranslation();
 
     return (value: string, successText = t("common.copied")) => {
-        copy(value);
-        message.success(successText);
+        if (copy(value)) message.success(successText);
+        else message.error(t("common.clipboardCopyHint"));
     };
 }

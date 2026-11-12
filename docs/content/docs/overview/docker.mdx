@@ -30,6 +30,16 @@ Open `http://localhost:3000`.
 
 ## Build locally
 
+### LAN HTTP compatibility (NAS acceptance pending)
+
+Shared source now supports UUIDs, matching SHA-256 history IDs, storage estimates and native paste on ordinary NAS-IP HTTP origins. Rebuild to use source changes; syncing GitHub does not update a running build/image. Keep the proxy same-origin at `/canvas-proxy/` without publishing its internal port.
+
+- Missing/denied storage estimates do not prevent reading IndexedDB records; unknown site usage/quota is shown as unavailable, not zero or unlimited space.
+- Clipboard read buttons cannot bypass HTTP/permission restrictions. Use Ctrl+V / ⌘V to paste image files or upload them; native text editing remains intact. Microphone and other browser security restrictions are not bypassed.
+- Saved scripts using bare crypto.randomUUID/SHA-256 digest use an explicit script-local facade. Browser globals are unchanged; arbitrary scripts using globalThis.crypto or other algorithms are not guaranteed compatible.
+- HTTP is only for trusted private networks: browser-to-NAS traffic, credentials and task tokens are not encrypted. Do not expose an anonymous relay.
+- HTTP and HTTPS are separate origins even at the same IP/port. Export/import old projects/settings/media explicitly; this change never clears or migrates old storage and keeps the existing24h backend result policy.
+
 ```bash
 docker compose -f docker-compose.local.yml up -d --build
 ```

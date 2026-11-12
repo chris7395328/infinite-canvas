@@ -7,6 +7,7 @@ import tencentVodScript from "./tencent-vod-script.js?raw";
 import seedance25AssetsScript from "./seedance25-assets-script.js?raw";
 import seedanceSeriesScript from "./seedance-series-script.js?raw";
 import { createScriptCosUpload } from "./script-cos";
+import { scriptCrypto } from "@/lib/browser-crypto";
 import { isSeedanceDraftScript, isSeedanceSeriesScript } from "@/lib/script-video-profile";
 
 export const getTencentVodScript = () => tencentVodScript.trim();
@@ -166,6 +167,7 @@ export async function runModelPlugin<T = unknown>(args: RunPluginArgs): Promise<
         "onDelta",
         "fetch",
         "uploadToCos",
+        "crypto",
         `"use strict"; return (async () => {\n${args.script}\n})();`,
     ) as (...fnArgs: unknown[]) => Promise<T>;
     try {
@@ -191,6 +193,7 @@ export async function runModelPlugin<T = unknown>(args: RunPluginArgs): Promise<
             args.onDelta,
             pluginFetch,
             createScriptCosUpload(config, args.signal),
+            scriptCrypto(),
         );
     } catch (error) {
         if (error instanceof DOMException && error.name === "AbortError") throw error;
@@ -224,6 +227,7 @@ export function getPluginVariables(): PluginVariable[] {
         { name: "poll", type: "function", desc: i18n.t("modelPlugin.variables.poll") },
         { name: "sleep", type: "function", desc: i18n.t("modelPlugin.variables.sleep") },
         { name: "signal", type: "AbortSignal", desc: i18n.t("modelPlugin.variables.signal") },
+        { name: "crypto", type: "object", desc: "HTTP／HTTPS兼容的安全UUID与SHA-256摘要；HTTP不支持其他SubtleCrypto算法，不改写globalThis.crypto。" },
         { name: "onDelta", type: "function", desc: i18n.t("modelPlugin.variables.onDelta"), capabilities: ["text"] },
     ];
 }
