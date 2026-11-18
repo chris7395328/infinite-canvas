@@ -50,6 +50,7 @@ export type CanvasNodeMetadata = {
     geminiAudio?: import("@/lib/gemini-audio").GeminiAudioSettings;
     audioText?: string;
     audioInteractionId?: string;
+    audioPeaks?: number[];
     content?: string;
     composerContent?: string;
     prompt?: string;

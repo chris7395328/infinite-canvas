@@ -8,12 +8,15 @@ export type UploadedFile = { url: string; storageKey: string; bytes: number; mim
 const store = localforage.createInstance({ name: "infinite-canvas", storeName: "media_files" });
 const objectUrls = new Map<string, string>();
 
-export async function uploadMediaFile(input: string | Blob, prefix = "file", options?: { deferAudioMetadata?: boolean; onAudioMetadata?: (storageKey: string, durationMs?: number) => void }): Promise<UploadedFile> {
+export async function uploadMediaFile(input: string | Blob, prefix = "file", options?: { knownAudioDurationMs?: number; deferAudioMetadata?: boolean; onAudioMetadata?: (storageKey: string, durationMs?: number) => void }): Promise<UploadedFile> {
     const blob = typeof input === "string" ? await (await fetch(withLocalProxy(input))).blob() : input;
     const storageKey = `${prefix}:${nanoid()}`;
     await store.setItem(storageKey, blob);
     const url = URL.createObjectURL(blob);
     objectUrls.set(storageKey, url);
+    if (blob.type.startsWith("audio/") && options?.knownAudioDurationMs !== undefined) {
+        return { url, storageKey, bytes: blob.size, mimeType: blob.type, durationMs: options.knownAudioDurationMs };
+    }
     if (blob.type.startsWith("audio/") && options?.deferAudioMetadata) {
         void readAudioMeta(url).then((meta) => options.onAudioMetadata?.(storageKey, meta.durationMs));
         return { url, storageKey, bytes: blob.size, mimeType: blob.type };

@@ -28,6 +28,7 @@ const { backgroundFetch, backgroundTasks } = await import("../src/services/api/b
 const { saveGenerationResource, removeGenerationResources, useGenerationResourceStore } = await import("../src/stores/use-generation-resource-store");
 const { runModelPlugin } = await import("../src/services/api/model-plugin");
 const { pastedImages, readClipboardImages } = await import("../src/services/clipboard");
+const { isAudioFile } = await import("../src/lib/canvas/canvas-generation-helpers");
 const uuidPattern = /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/;
 const proxy = "http://192.0.2.55:3001/canvas-proxy";
 const config = { ...defaultConfig, proxyEnabled: true, proxyUrl: proxy, model: "relay::example-video", channels: [createModelChannel({ id: "relay", baseUrl: "https://upstream.example/v1", apiKey: "fixture-key", apiFormat: "openai", models: [{ name: "example-video", capability: "video" }] })] };
@@ -139,10 +140,20 @@ test("HTTP clipboard buttons show actionable guidance while real paste event fil
     expect(await readClipboardImages()).toEqual([file]);
 });
 
-test("canvas leaves native paste enabled outside internal node copies and editors; workbenches bind paste events", () => {
+test("canvas leaves native paste enabled and distinguishes internal node copies; workbenches bind paste events", () => {
     const canvas = readFileSync(new URL("../src/pages/canvas/project.tsx", import.meta.url), "utf8");
-    expect(canvas).toContain('if (pasteCopiedNodes()) event.preventDefault();');
+    expect(canvas).toContain('event.clipboardData.setData(CANVAS_NODE_CLIPBOARD, "1")');
+    expect(canvas).toContain('event.clipboardData?.getData(CANVAS_NODE_CLIPBOARD)');
+    expect(canvas.indexOf("files.filter(isAudioFile)")).toBeLessThan(canvas.indexOf('event.clipboardData?.getData(CANVAS_NODE_CLIPBOARD)'));
     expect(canvas).toContain('window.addEventListener("paste", pasteSystemClipboard)');
-    expect(canvas).toContain("input,textarea,select,[contenteditable='true']");
+    expect(canvas).toContain("input,textarea,select,[contenteditable]");
     for (const page of ["image", "video"]) expect(readFileSync(new URL(`../src/pages/${page}/index.tsx`, import.meta.url), "utf8")).toContain('const files = pastedImages(event.clipboardData);');
+});
+
+test("canvas recognizes AAC, M4A and Ogg audio even without an audio MIME hint", () => {
+    for (const name of ["voice.AAC", "music.m4a", "source.ogg", "recording.flac", "clip.opus"]) {
+        expect(isAudioFile(new File(["fixture"], name, { type: "application/octet-stream" }))).toBe(true);
+    }
+    expect(isAudioFile(new File(["fixture"], "video.mp4", { type: "video/mp4" }))).toBe(false);
+    expect(isAudioFile(new File(["fixture"], "download", { type: "audio/aac" }))).toBe(true);
 });

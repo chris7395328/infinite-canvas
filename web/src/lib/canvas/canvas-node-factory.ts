@@ -51,8 +51,8 @@ export function videoMetadata(video: UploadedFile): CanvasNodeMetadata {
     return { content: video.url, storageKey: video.storageKey, status: "success", naturalWidth: video.width, naturalHeight: video.height, bytes: video.bytes, mimeType: video.mimeType || "video/mp4", durationMs: video.durationMs };
 }
 
-export function audioMetadata(audio: UploadedFile & { audioText?: string; audioInteractionId?: string }): CanvasNodeMetadata {
-    return { content: audio.url, storageKey: audio.storageKey, status: "success", bytes: audio.bytes, mimeType: audio.mimeType || "audio/mpeg", durationMs: audio.durationMs, audioText: audio.audioText, audioInteractionId: audio.audioInteractionId };
+export function audioMetadata(audio: UploadedFile & { audioText?: string; audioInteractionId?: string; audioPeaks?: number[] }): CanvasNodeMetadata {
+    return { content: audio.url, storageKey: audio.storageKey, status: "success", bytes: audio.bytes, mimeType: audio.mimeType || "audio/mpeg", durationMs: audio.durationMs, audioText: audio.audioText, audioInteractionId: audio.audioInteractionId, audioPeaks: audio.audioPeaks };
 }
 
 export function referenceUrl(image: ReferenceImage) {

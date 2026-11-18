@@ -210,7 +210,7 @@ export function sourceNodeReferenceImages(node: CanvasNodeData | null) {
 }
 
 export function isAudioFile(file: File) {
-    return file.type.startsWith("audio/") || /\.(mp3|wav)$/i.test(file.name);
+    return file.type.startsWith("audio/") || /\.(mp3|wav|wave|aac|adts|m4a|m4b|ogg|oga|opus|flac|aiff?|aifc|wma|amr|caf)$/i.test(file.name);
 }
 
 export function buildAngleLabel(params: CanvasImageAngleParams) {

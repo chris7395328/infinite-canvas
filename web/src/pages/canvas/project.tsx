@@ -6,7 +6,9 @@ import { saveAs } from "file-saver";
 import { useTranslation } from "react-i18next";
 
 import { requestEdit, requestGeneration, requestImageQuestion } from "@/services/api/image";
-import { pastedImages } from "@/services/clipboard";
+import { pastedFiles } from "@/services/clipboard";
+import { decodeAudioFile } from "@/lib/audio-editing";
+import { storeCanvasAudio } from "@/services/audio-editing";
 import { requestAudioGeneration, storeGeneratedAudio } from "@/services/api/audio";
 import { acknowledgeSavedBackgroundTasks, backgroundTasks, discardBackgroundTasks, supersedeNodeBackgroundTasks, type BackgroundContext } from "@/services/api/background-tasks";
 import { applyBackgroundResult, recoverBackgroundResult } from "@/services/background-task-recovery";
@@ -36,6 +38,7 @@ import { CanvasConfigNodePanel } from "@/components/canvas/canvas-config-node-pa
 import { CanvasNodeContextMenu } from "@/components/canvas/canvas-context-menu";
 import { CanvasNodeAngleDialog, type CanvasImageAngleParams } from "@/components/canvas/canvas-node-angle-dialog";
 import { CanvasNodeCropDialog, type CanvasImageCropRect } from "@/components/canvas/canvas-node-crop-dialog";
+import { CanvasAudioCropDialog } from "@/components/canvas/canvas-audio-crop-dialog";
 import { CanvasNodeMaskEditDialog, type CanvasImageMaskEditPayload } from "@/components/canvas/canvas-node-mask-edit-dialog";
 import { CanvasNodeSplitDialog, type CanvasImageSplitParams } from "@/components/canvas/canvas-node-split-dialog";
 import { CanvasNodeUpscaleDialog, type CanvasImageUpscaleParams } from "@/components/canvas/canvas-node-upscale-dialog";
@@ -116,6 +119,8 @@ type CanvasClipboard = {
     nodes: CanvasNodeData[];
     connections: CanvasConnection[];
 };
+
+const CANVAS_NODE_CLIPBOARD = "application/x-infinite-canvas-nodes";
 
 type ConnectionDropTarget = {
     nodeId: string | null;
@@ -279,6 +284,7 @@ function InfiniteCanvasPage() {
     const [infoNodeId, setInfoNodeId] = useState<string | null>(null);
     const [pluginManagerOpen, setPluginManagerOpen] = useState(false);
     const [cropNodeId, setCropNodeId] = useState<string | null>(null);
+    const [audioCropNodeId, setAudioCropNodeId] = useState<string | null>(null);
     const [maskEditNodeId, setMaskEditNodeId] = useState<string | null>(null);
     const [splitNodeId, setSplitNodeId] = useState<string | null>(null);
     const [upscaleNodeId, setUpscaleNodeId] = useState<string | null>(null);
@@ -501,6 +507,7 @@ function InfiniteCanvasPage() {
         let cancelled = false;
         loadedProjectRef.current = "";
         setProjectLoaded(false);
+        setAudioCropNodeId(null);
         const project = openProject(projectId);
         if (!project) {
             navigate("/canvas", { replace: true });
@@ -904,6 +911,7 @@ function InfiniteCanvasPage() {
     const toolbarNode = (toolbarNodeId ? nodeById.get(toolbarNodeId) || null : null) || (singleSelectedNodeId ? nodeById.get(singleSelectedNodeId) || null : null);
     const infoNode = infoNodeId ? nodeById.get(infoNodeId) || null : null;
     const cropNode = cropNodeId ? nodeById.get(cropNodeId) || null : null;
+    const audioCropNode = audioCropNodeId ? nodeById.get(audioCropNodeId) || null : null;
     const maskEditNode = maskEditNodeId ? nodeById.get(maskEditNodeId) || null : null;
     const splitNode = splitNodeId ? nodeById.get(splitNodeId) || null : null;
     const upscaleNode = upscaleNodeId ? nodeById.get(upscaleNodeId) || null : null;
@@ -1056,6 +1064,7 @@ function InfiniteCanvasPage() {
             setDialogNodeId((current) => (current && allIds.has(current) ? null : current));
             setInfoNodeId((current) => (current && allIds.has(current) ? null : current));
             setCropNodeId((current) => (current && allIds.has(current) ? null : current));
+            setAudioCropNodeId((current) => (current && allIds.has(current) ? null : current));
             setMaskEditNodeId((current) => (current && allIds.has(current) ? null : current));
             setAngleNodeId((current) => (current && allIds.has(current) ? null : current));
             setPreviewNodeId((current) => (current && allIds.has(current) ? null : current));
@@ -1157,6 +1166,7 @@ function InfiniteCanvasPage() {
         setConnections([]);
         setInfoNodeId(null);
         setCropNodeId(null);
+        setAudioCropNodeId(null);
         setMaskEditNodeId(null);
         setAngleNodeId(null);
         setPreviewNodeId(null);
@@ -1189,7 +1199,7 @@ function InfiniteCanvasPage() {
 
     const copySelectedNodes = useCallback(() => {
         const selectedIds = selectedNodeIdsRef.current;
-        if (!selectedIds.size) return;
+        if (!selectedIds.size) return false;
 
         const copiedNodes = nodesRef.current
             .filter((node) => selectedIds.has(node.id))
@@ -1199,12 +1209,13 @@ function InfiniteCanvasPage() {
                 metadata: copyNodeMetadata(node.metadata),
             }));
 
-        if (!copiedNodes.length) return;
+        if (!copiedNodes.length) return false;
 
         clipboardRef.current = {
             nodes: copiedNodes,
             connections: connectionsRef.current.filter((connection) => selectedIds.has(connection.toNodeId)).map((connection) => ({ ...connection })),
         };
+        return true;
     }, []);
 
     const pasteCopiedNodes = useCallback(() => {
@@ -1744,25 +1755,62 @@ function InfiniteCanvasPage() {
         setDialogNodeId(id);
     }, []);
 
-    const createAudioFileNode = useCallback(async (file: File, position: Position) => {
-        const audio = await uploadMediaFile(file, "audio");
-        const spec = NODE_DEFAULT_SIZE[CanvasNodeType.Audio];
-        const id = `audio-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`;
-        setNodes((prev) => [
-            ...prev,
-            {
-                id,
-                type: CanvasNodeType.Audio,
-                title: file.name,
+    const createAudioFileNode = useCallback(async (file: File, position: Position, replaceId?: string) => {
+        const dismiss = message.loading(t("canvas.audioEditing.converting", { name: file.name }), 0);
+        let decoding = true;
+        try {
+            const decoded = await decodeAudioFile(file);
+            if (loadedProjectRef.current !== projectId) return;
+            decoding = false;
+            const audio = await storeCanvasAudio(decoded);
+            if (loadedProjectRef.current !== projectId) return;
+            const id = replaceId || nanoid();
+            const spec = NODE_DEFAULT_SIZE[CanvasNodeType.Audio];
+            const node: CanvasNodeData = {
+                id, type: CanvasNodeType.Audio,
+                title: file.name.replace(/\.[^.]+$/, "") || file.name,
                 position: { x: position.x - spec.width / 2, y: position.y - spec.height / 2 },
-                width: spec.width,
-                height: spec.height,
+                width: spec.width, height: spec.height,
                 metadata: audioMetadata(audio),
-            },
-        ]);
-        setSelectedNodeIds(new Set([id]));
+            };
+            setNodes((prev) => replaceId ? prev.map((item) => item.id !== replaceId ? item : {
+                ...node,
+                position: { x: item.position.x + (item.width - node.width) / 2, y: item.position.y + (item.height - node.height) / 2 },
+                metadata: { ...node.metadata, groupId: item.metadata?.groupId },
+            }) : [...prev, node]);
+            if (!replaceId || nodesRef.current.some((item) => item.id === replaceId)) {
+                setSelectedNodeIds(new Set([id]));
+                setSelectedConnectionId(null);
+            }
+        } catch {
+            message.error(t(decoding ? "canvas.audioEditing.importDecodeFailed" : "canvas.audioEditing.importSaveFailed", { name: file.name }));
+        } finally {
+            dismiss();
+        }
+    }, [message, projectId, t]);
+
+    const cropAudioNode = useCallback(async (node: CanvasNodeData, audio: AudioBuffer, start: number, end: number) => {
+        const saved = await storeCanvasAudio(audio, start, end);
+        if (loadedProjectRef.current !== projectId) return;
+        const source = nodesRef.current.find((item) => item.id === node.id);
+        if (!source || source.metadata?.content !== node.metadata?.content) throw new Error("Audio source changed");
+        const child: CanvasNodeData = {
+            id: nanoid(),
+            type: CanvasNodeType.Audio,
+            title: t("canvas.audioEditing.cropName", { name: source.title }),
+            position: { x: source.position.x + source.width + 96, y: source.position.y },
+            width: source.width,
+            height: source.height,
+            metadata: audioMetadata(saved),
+        };
+        setNodes((prev) => [...prev, child]);
+        setSelectedNodeIds(new Set([child.id]));
         setSelectedConnectionId(null);
-    }, []);
+        setHoveredNodeId(null);
+        setToolbarNodeId(null);
+        setDialogNodeId(null);
+        setAudioCropNodeId(null);
+    }, [projectId, t]);
 
     const createTextNodeFromClipboard = useCallback(
         (text: string) => {
@@ -1784,32 +1832,52 @@ function InfiniteCanvasPage() {
         [getCanvasCenter, t],
     );
 
-    const pasteSystemClipboard = useCallback((event: ClipboardEvent) => {
+    const ignoreCanvasClipboard = useCallback((event: ClipboardEvent) => {
         const target = event.target instanceof Element ? event.target : null;
-        if (event.defaultPrevented || generationHistoryOpen || target?.closest("input,textarea,select,[contenteditable='true'],[data-canvas-no-zoom],[data-canvas-shortcuts-ignore]")) return;
-        const file = pastedImages(event.clipboardData)[0];
+        return event.defaultPrevented || !projectLoaded || generationHistoryOpen || Boolean(audioCropNode) || Boolean(target?.closest("input,textarea,select,[contenteditable]:not([contenteditable='false']),[data-canvas-no-zoom],[data-canvas-shortcuts-ignore]"));
+    }, [projectLoaded, generationHistoryOpen, audioCropNode]);
+
+    const copyToSystemClipboard = useCallback((event: ClipboardEvent) => {
+        if (ignoreCanvasClipboard(event) || window.getSelection()?.toString() || !event.clipboardData || !copySelectedNodes()) return;
+        event.clipboardData.setData(CANVAS_NODE_CLIPBOARD, "1");
+        event.clipboardData.setData("text/plain", CANVAS_NODE_CLIPBOARD);
+        event.preventDefault();
+    }, [copySelectedNodes, ignoreCanvasClipboard]);
+
+    const pasteSystemClipboard = useCallback((event: ClipboardEvent) => {
+        if (ignoreCanvasClipboard(event)) return;
+        const files = pastedFiles(event.clipboardData);
+        const audios = files.filter(isAudioFile);
+        if (audios.length) {
+            event.preventDefault();
+            const center = getCanvasCenter();
+            audios.forEach((audio, index) => void createAudioFileNode(audio, { x: center.x + index * 40, y: center.y + index * 40 }));
+            return;
+        }
+        const file = files.find((item) => item.type.startsWith("image/"));
         if (file) {
             event.preventDefault();
             void createImageFileNode(file, getCanvasCenter());
             message.success(t("canvas.projectPage.clipboardImageAdded"));
             return;
         }
-        if (createTextNodeFromClipboard(event.clipboardData?.getData("text/plain") || "")) {
+        const text = event.clipboardData?.getData("text/plain") || "";
+        if (event.clipboardData?.getData(CANVAS_NODE_CLIPBOARD) || text === CANVAS_NODE_CLIPBOARD) {
+            if (pasteCopiedNodes()) event.preventDefault();
+        } else if (createTextNodeFromClipboard(text)) {
             event.preventDefault();
             message.success(t("canvas.projectPage.clipboardTextAdded"));
         }
-    }, [generationHistoryOpen, createImageFileNode, createTextNodeFromClipboard, getCanvasCenter, message, t]);
+    }, [ignoreCanvasClipboard, createAudioFileNode, createImageFileNode, createTextNodeFromClipboard, getCanvasCenter, message, pasteCopiedNodes, t]);
 
     useEffect(() => {
         const handleKeyDown = (event: KeyboardEvent) => {
-            if (generationHistoryOpen) return;
+            if (generationHistoryOpen || audioCropNode) return;
             const target = event.target instanceof Element ? event.target : null;
             if (event.target instanceof HTMLInputElement || event.target instanceof HTMLTextAreaElement || event.target instanceof HTMLSelectElement || target?.closest("[contenteditable='true'],[data-canvas-no-zoom],[data-canvas-shortcuts-ignore]")) return;
 
             const key = event.key.toLowerCase();
             const isModifierShortcut = event.metaKey || event.ctrlKey;
-
-            if (isModifierShortcut && key === "c" && window.getSelection()?.toString()) return;
 
             if (isModifierShortcut && !event.altKey && key === "z") {
                 event.preventDefault();
@@ -1848,18 +1916,6 @@ function InfiniteCanvasPage() {
                 return;
             }
 
-            if (isModifierShortcut && !event.altKey && key === "c") {
-                event.preventDefault();
-                copySelectedNodes();
-                return;
-            }
-
-            if (isModifierShortcut && !event.altKey && key === "v") {
-                if (pasteCopiedNodes()) event.preventDefault();
-                // Otherwise allow the browser's user-initiated paste event, including on HTTP.
-                return;
-            }
-
             if (event.key === "Delete" || event.key === "Backspace") {
                 if (selectedNodeIdsRef.current.size) {
                     deleteNodes(new Set(selectedNodeIdsRef.current));
@@ -1886,9 +1942,10 @@ function InfiniteCanvasPage() {
         };
 
         window.addEventListener("keydown", handleKeyDown);
+        window.addEventListener("copy", copyToSystemClipboard);
         window.addEventListener("paste", pasteSystemClipboard);
-        return () => { window.removeEventListener("keydown", handleKeyDown); window.removeEventListener("paste", pasteSystemClipboard); };
-    }, [generationHistoryOpen, copySelectedNodes, deleteConnection, deleteNodes, groupSelection, pasteCopiedNodes, pasteSystemClipboard, redoCanvas, selectedConnectionId, setConnecting, undoCanvas, ungroupSelection]);
+        return () => { window.removeEventListener("keydown", handleKeyDown); window.removeEventListener("copy", copyToSystemClipboard); window.removeEventListener("paste", pasteSystemClipboard); };
+    }, [audioCropNode, generationHistoryOpen, copyToSystemClipboard, deleteConnection, deleteNodes, groupSelection, pasteSystemClipboard, redoCanvas, selectedConnectionId, setConnecting, undoCanvas, ungroupSelection]);
 
     const handleConnectStart = useCallback(
         (event: ReactMouseEvent, nodeId: string, handleType: "source" | "target") => {
@@ -2486,25 +2543,7 @@ function InfiniteCanvasPage() {
 
                 // Replace the target node with the first file.
                 if (isAudioFile(first)) {
-                    const audio = await uploadMediaFile(first, "audio");
-                    const spec = NODE_DEFAULT_SIZE[CanvasNodeType.Audio];
-                    setNodes((prev) =>
-                        prev.map((node) =>
-                            node.id === target.nodeId
-                                ? {
-                                      ...node,
-                                      type: CanvasNodeType.Audio,
-                                      title: first.name,
-                                      position: { x: node.position.x + node.width / 2 - spec.width / 2, y: node.position.y + node.height / 2 - spec.height / 2 },
-                                      width: spec.width,
-                                      height: spec.height,
-                                      metadata: { ...node.metadata, ...audioMetadata(audio), errorDetails: undefined },
-                                  }
-                                : node,
-                        ),
-                    );
-                    setSelectedNodeIds(new Set([target.nodeId]));
-                    setSelectedConnectionId(null);
+                    await createAudioFileNode(first, basePosition, target.nodeId);
                 } else if (first.type.startsWith("video/")) {
                     const video = await uploadMediaFile(first, "video");
                     const nextSize = fitNodeSize(video.width || 1280, video.height || 720, VIDEO_NODE_MAX_WIDTH, VIDEO_NODE_MAX_HEIGHT);
@@ -3787,6 +3826,7 @@ function InfiniteCanvasPage() {
                     onSaveAsset={(node) => void saveNodeAsset(node)}
                     onMaskEdit={(node) => setMaskEditNodeId(node.id)}
                     onCrop={(node) => setCropNodeId(node.id)}
+                    onCropAudio={(node) => setAudioCropNodeId(node.id)}
                     onSplit={(node) => setSplitNodeId(node.id)}
                     onUpscale={(node) => setUpscaleNodeId(node.id)}
                     onSuperResolve={(node) => setSuperResolveNodeId(node.id)}
@@ -3875,12 +3915,13 @@ function InfiniteCanvasPage() {
                     />
                 ) : null}
 
-                <input ref={imageInputRef} type="file" multiple accept="image/*,video/*,audio/mpeg,audio/wav,audio/x-wav,.mp3,.wav" className="hidden" onChange={handleImageInputChange} />
+                <input ref={imageInputRef} type="file" multiple accept="image/*,video/*,audio/*,.mp3,.wav,.aac,.adts,.m4a,.ogg,.oga,.opus,.flac,.aif,.aiff" className="hidden" onChange={handleImageInputChange} />
 
                 <CanvasNodeInfoModal node={infoNode} open={Boolean(infoNode)} onClose={() => setInfoNodeId(null)} />
                 <CanvasPluginManagerModal open={pluginManagerOpen} onClose={() => setPluginManagerOpen(false)} />
 
                 {cropNode?.metadata?.content ? <CanvasNodeCropDialog dataUrl={cropNode.metadata.content} open={Boolean(cropNode)} onClose={() => setCropNodeId(null)} onConfirm={(crop) => void cropImageNode(cropNode!, crop)} /> : null}
+                {audioCropNode?.metadata?.content ? <CanvasAudioCropDialog key={audioCropNode.id + ":" + audioCropNode.metadata.content} content={audioCropNode.metadata.content} storageKey={audioCropNode.metadata.storageKey} title={audioCropNode.title} onClose={() => setAudioCropNodeId(null)} onConfirm={(audio, start, end) => cropAudioNode(audioCropNode, audio, start, end)} /> : null}
 
                 {maskEditNode?.metadata?.content ? (
                     <CanvasNodeMaskEditDialog dataUrl={maskEditNode.metadata.content} open={Boolean(maskEditNode)} allowMarkup={supportsGptMarkup(buildGenerationConfig(effectiveConfig, maskEditNode, "image").model) && !resolveModelScript(effectiveConfig, buildGenerationConfig(effectiveConfig, maskEditNode, "image").model)} onClose={() => setMaskEditNodeId(null)} onConfirm={(payload) => void maskEditImageNode(maskEditNode!, payload)} />

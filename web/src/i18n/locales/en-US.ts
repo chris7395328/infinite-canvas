@@ -288,6 +288,23 @@ export default {
             stopTitle: "Stop generation?", stopDescription: "The current request will be interrupted. Completed results will be kept.", stop: "Stop", continue: "Continue generating", configConnection: "Configuration nodes cannot be connected to each other", notFound: "Current canvas not found", exporting: "Exporting current canvas…", exported: "Current canvas exported", clipboardText: "Clipboard text", clipboardImageAdded: "Added image from clipboard", clipboardTextAdded: "Added text from clipboard", noTextToSave: "No text to save", canvasText: "Canvas text", noVideoToSave: "No video to save", canvasVideo: "Canvas video", noImageToSave: "No image to save", canvasImage: "Canvas image", emptyReverse: "The image node is empty, so its prompt cannot be inferred", reverseTitle: "Reverse prompt", reverseConfigTitle: "Reverse prompt configuration", splitTitle: "{{name}} {{row}}-{{column}}", splitSuccess: "Split into {{count}} child nodes", maskResult: "Local edit result", maskFailed: "Local edit failed", generationFailed: "Generation failed", partialFailed: "Some images failed to generate", partialTextFailed: "Some text alternatives failed to generate", allFailed: "All images failed to generate", retryPromptMissing: "No prompt found for retry", referenceMissing: "The reference image is missing, so retry cannot continue", emptyTextImage: "The text node is empty, so an image cannot be generated", untitledCanvas: "Untitled canvas", superResolve: "AI super resolution", notImplemented: "Not implemented yet", imageDetails: "Image details", clearTitle: "Clear canvas?", clear: "Clear", clearDescription: "This will delete every node and connection on the current canvas.", reversePreset: "Infer a prompt suitable for AI image generation from the reference image.\n\nRequirements:\n1. Output only the prompt, with no explanation.\n2. Cover the subject, composition, style, lighting, color, materials, lens, and atmosphere.\n3. Write a complete prompt that can be used directly with an image model.", maskPrompt: "{{source}} is the original image. {{mask}} marks the area to edit with a translucent blue overlay on the original image. Only modify the area covered by the blue overlay, keep everything else identical to the original, output a full image with the same size as the original, and do not keep any blue overlay in the result. Edit request: {{prompt}}", maskNodeTitle: "Mask annotation", editTextPrompt: "Revise the text according to the instructions.\n\nOriginal:\n{{source}}\n\nInstructions:\n{{prompt}}"
         },
         reverseComposer: "Reference image: @[node:{{imageId}}]\nTask: @[node:{{textId}}]",
+        audioEditing: {
+            title: "Trim audio",
+            action: "Trim",
+            confirm: "Confirm trim",
+            hint: "Drag to select the part to keep, adjust either edge, or enter start and end times. The original stays unchanged.",
+            start: "Start",
+            end: "End",
+            seconds: "s",
+            selected: "{{duration}} s selected",
+            loading: "Reading the audio waveform…",
+            decodeFailed: "Could not read this audio. The file may be missing or use a codec this browser does not support.",
+            cropFailed: "Could not save the trimmed audio. The original is unchanged. Check browser storage and try again.",
+            cropName: "{{name}}_Trimmed",
+            converting: "Converting “{{name}}” to WAV…",
+            importDecodeFailed: "Could not decode “{{name}}”. The file may be damaged or use an unsupported codec. It was not imported.",
+            importSaveFailed: "Could not save “{{name}}” as WAV. Check the file and browser storage. It was not imported.",
+        },
         editors: {
             reset: "Reset", zoomOut: "Zoom out", zoomIn: "Zoom in", loading: "Loading", unknown: "Unknown", cancel: "Cancel",
             angleTitle: "AI Multi-angle", angleDescription: "The left side previews direction only; the result is regenerated from the original image", horizontal: "Horizontal angle", pitch: "Pitch angle", distance: "Camera distance", lens: "Wide-angle lens", standard: "Standard", wide: "Wide", aiGenerate: "Generate with AI",

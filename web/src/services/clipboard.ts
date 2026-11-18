@@ -1,6 +1,15 @@
 import i18n from "@/i18n";
 
-export const pastedImages = (data: DataTransfer | null) => Array.from(data?.files || []).filter((file) => file.type.startsWith("image/"));
+export function pastedFiles(data: DataTransfer | null) {
+    const files = Array.from(data?.files || []);
+    if (files.length) return files;
+    return Array.from(data?.items || []).flatMap((item) => {
+        const file = item.kind === "file" && item.getAsFile();
+        return file ? [file] : [];
+    });
+}
+
+export const pastedImages = (data: DataTransfer | null) => pastedFiles(data).filter((file) => file.type.startsWith("image/"));
 
 export async function readClipboardImages() {
     try {

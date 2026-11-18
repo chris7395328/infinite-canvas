@@ -4,12 +4,15 @@ import { ChevronRight, Copy, Download, Group, Image as ImageIcon, Music2, Puzzle
 
 import { canvasThemes } from "@/lib/canvas-theme";
 import { formatBytes } from "@/lib/image-utils";
+import { audioWaveform } from "@/lib/audio-editing";
 import { pickImageSource } from "@/lib/image-thumbnail";
 import { previewUrlFor, subscribeImagePreviews, getImagePreviewRevision } from "@/services/image-storage";
+import { loadCanvasAudio } from "@/services/audio-editing";
 import { getNodeDefinition } from "@/lib/canvas/node-registry";
 import { buildNodeContext } from "@/lib/canvas/plugin-node-context";
 import { useThemeStore } from "@/stores/use-theme-store";
 import { CanvasResourceMentionTextarea } from "./canvas-resource-mention-textarea";
+import { AudioWaveform } from "./audio-waveform";
 import { CanvasNodeType, type CanvasNodeData, type CanvasNodeImage, type CanvasNodeText, type Position } from "@/types/canvas";
 import type { CanvasNodeContext, CanvasPluginHost } from "@/types/canvas-plugin";
 import type { CanvasResourceReference } from "@/lib/canvas/canvas-resource-references";
@@ -718,20 +721,44 @@ function VideoNodeContent({ node, theme }: NodeContentRendererProps) {
 
 function AudioNodeContent({ node, theme }: NodeContentRendererProps) {
     const { t } = useTranslation();
-    if (!node.metadata?.content)
+    const { content, storageKey, audioPeaks } = node.metadata || {};
+    const waveformRef = useRef<HTMLDivElement>(null);
+    const [preview, setPreview] = useState<{ content: string; peaks: number[] }>();
+    useEffect(() => {
+        const element = waveformRef.current;
+        if (!element || !content || audioPeaks) return;
+        const controller = new AbortController();
+        const load = () => {
+            void loadCanvasAudio(content, storageKey, controller.signal).then((audio) => {
+                if (!controller.signal.aborted) setPreview({ content, peaks: audioWaveform(audio) });
+            }).catch(() => { /* Keep the native player if an old format cannot be decoded. */ });
+        };
+        if (typeof IntersectionObserver === "undefined") {
+            load();
+            return () => controller.abort();
+        }
+        const observer = new IntersectionObserver((entries) => {
+            if (!entries.some((entry) => entry.isIntersecting)) return;
+            observer.disconnect();
+            load();
+        });
+        observer.observe(element);
+        return () => { observer.disconnect(); controller.abort(); };
+    }, [content, storageKey, audioPeaks]);
+    if (!content)
         return (
             <div className="flex h-full w-full flex-col items-center justify-center gap-2" style={{ color: theme.node.placeholder }}>
                 <Music2 className="size-7 opacity-35" />
                 <span className="text-sm">{t("canvas.node.emptyAudio")}</span>
             </div>
         );
+    const peaks = audioPeaks || (preview?.content === content ? preview.peaks : undefined);
     return (
-        <div className="flex h-full w-full flex-col justify-center gap-3 px-4" style={{ background: theme.node.fill, color: theme.node.text }}>
-            <div className="flex min-w-0 items-center gap-2 text-sm opacity-70">
-                <Music2 className="size-4 shrink-0" />
-                <span className="truncate">{t("canvas.node.audio")}</span>
+        <div className="flex h-full w-full flex-col justify-center gap-2 px-4" style={{ color: theme.node.text }}>
+            <div ref={waveformRef} className="flex h-9 w-full items-center" style={{ color: theme.node.muted }}>
+                {peaks?.length ? <AudioWaveform peaks={peaks} className="h-full w-full" /> : <div className="h-px w-full opacity-30" style={{ background: theme.node.muted }} />}
             </div>
-            <audio src={node.metadata.content} controls className="w-full" data-canvas-no-zoom />
+            <audio src={content} controls preload="metadata" className="h-10 w-full" data-canvas-no-zoom onMouseDown={(event) => event.stopPropagation()} />
         </div>
     );
 }

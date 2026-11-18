@@ -6,6 +6,6 @@ export function regenerateInPlace(node: CanvasNodeData | undefined, mode: string
 
 export function resetGenerationResult(metadata: CanvasNodeMetadata = {}) {
     const next = { ...metadata };
-    for (const key of ["content", "storageKey", "naturalWidth", "naturalHeight", "bytes", "mimeType", "durationMs", "images", "texts", "primaryImageId", "primaryTextId", "videoTaskId", "videoTaskProvider", "generationRecovery", "generationCost", "seedanceDraftTaskId", "errorDetails"] as const) delete next[key];
+    for (const key of ["content", "storageKey", "naturalWidth", "naturalHeight", "bytes", "mimeType", "durationMs", "audioPeaks", "images", "texts", "primaryImageId", "primaryTextId", "videoTaskId", "videoTaskProvider", "generationRecovery", "generationCost", "seedanceDraftTaskId", "errorDetails"] as const) delete next[key];
     return next;
 }
